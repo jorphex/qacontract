@@ -1,7 +1,9 @@
 import os
+import time
 
 import click
 from ape import accounts, project
+from ape.cli import ConnectedProviderCommand
 from dotenv import load_dotenv
 from eth_utils import is_address, to_checksum_address
 
@@ -11,9 +13,23 @@ load_dotenv()
 BASE_USDC = "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913"
 BASE_SEPOLIA_USDC = "0x036CbD53842c5426634e7929541eC2318f3dCF7e"
 
+BASE_USDC_BY_NETWORK = {
+    ("base", "mainnet"): BASE_USDC,
+    ("base", "sepolia"): BASE_SEPOLIA_USDC,
+}
 
-def env_default(name: str, default: str | None = None) -> str | None:
-    return os.environ.get(name, default)
+
+def default_token(provider) -> str:
+    if token := os.environ.get("PROMPTCLAIM_TOKEN"):
+        return token
+
+    if provider is None:
+        return BASE_USDC
+
+    ecosystem_name = provider.network.ecosystem.name
+    network_name = provider.network.name
+
+    return BASE_USDC_BY_NETWORK.get((ecosystem_name, network_name), BASE_USDC)
 
 
 def parse_address(value: str, label: str) -> str:
@@ -31,7 +47,24 @@ def parse_answer_hash(value: str) -> str:
     return value
 
 
-@click.command()
+def validate_deadline(deadline: int):
+    now = int(time.time())
+    if deadline <= now:
+        raise click.BadParameter(
+            f"deadline must be in the future; now is {now}"
+        )
+
+
+def echo_contract_state(contract):
+    click.echo(f"deployed_creator={contract.creator()}")
+    click.echo(f"deployed_token={contract.token()}")
+    click.echo(f"deployed_refund_to={contract.refund_to()}")
+    click.echo(f"deployed_amount={contract.amount()}")
+    click.echo(f"deployed_deadline={contract.deadline()}")
+    click.echo(f"deployed_answer_hash={contract.answer_hash()}")
+
+
+@click.command(cls=ConnectedProviderCommand)
 @click.option(
     "--account",
     envvar="PROMPTCLAIM_ACCOUNT",
@@ -41,8 +74,7 @@ def parse_answer_hash(value: str) -> str:
 @click.option(
     "--token",
     envvar="PROMPTCLAIM_TOKEN",
-    default=lambda: env_default("PROMPTCLAIM_TOKEN", BASE_USDC),
-    show_default="Base USDC",
+    default=None,
     help="ERC20 prize token address.",
 )
 @click.option(
@@ -78,19 +110,23 @@ def parse_answer_hash(value: str) -> str:
     help="Print deployment values without loading an account or sending a transaction.",
 )
 def cli(
+    provider,
     account: str,
-    token: str,
+    token: str | None,
     refund_to: str,
     amount: int,
     deadline: int,
     answer_hash: str,
     dry_run: bool,
 ):
+    token = token or default_token(provider)
     token = parse_address(token, "token")
     refund_to = parse_address(refund_to, "refund-to")
 
     if amount <= 0:
         raise click.BadParameter("amount must be greater than zero")
+
+    validate_deadline(deadline)
 
     click.echo("PromptClaim deployment")
     click.echo(f"account={account}")
@@ -113,3 +149,4 @@ def cli(
         answer_hash,
     )
     click.echo(f"prompt_claim={contract.address}")
+    echo_contract_state(contract)

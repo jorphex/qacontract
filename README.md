@@ -65,7 +65,8 @@ flags that are already defined there.
 
 `1000000` is `1 USDC` because USDC has 6 decimals.
 
-The deploy script defaults to native Base USDC:
+The deploy script defaults to native USDC for the selected Base network when
+`PROMPTCLAIM_TOKEN` and `--token` are omitted. Base mainnet USDC is:
 
 ```text
 0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913

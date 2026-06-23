@@ -1,5 +1,6 @@
 import click
 from ape import accounts, project
+from ape.cli import ConnectedProviderCommand
 from dotenv import load_dotenv
 from eth_utils import is_address, to_checksum_address
 
@@ -22,7 +23,7 @@ def parse_address(value: str, label: str) -> str:
     return to_checksum_address(value)
 
 
-@click.command()
+@click.command(cls=ConnectedProviderCommand)
 @click.option(
     "--account",
     envvar="PROMPTCLAIM_ACCOUNT",

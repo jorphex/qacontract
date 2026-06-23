@@ -102,7 +102,26 @@ def test_claim_expires(chain, funded_prompt_claim, solver, deadline):
         funded_prompt_claim.claim(ANSWER, sender=solver)
 
 
+def test_claim_allowed_at_exact_deadline(token, chain, funded_prompt_claim, solver, deadline):
+    chain.pending_timestamp = deadline
+
+    funded_prompt_claim.claim(ANSWER, sender=solver)
+
+    assert funded_prompt_claim.settled()
+    assert funded_prompt_claim.winner() == solver.address
+    assert token.balanceOf(solver) == AMOUNT
+
+
 def test_creator_cannot_clawback_before_deadline(funded_prompt_claim, creator):
+    with ape.reverts("not expired"):
+        funded_prompt_claim.clawback(sender=creator)
+
+
+def test_creator_cannot_clawback_at_exact_deadline(
+    chain, funded_prompt_claim, creator, deadline
+):
+    chain.pending_timestamp = deadline
+
     with ape.reverts("not expired"):
         funded_prompt_claim.clawback(sender=creator)
 
