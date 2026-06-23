@@ -79,21 +79,31 @@ def test_non_creator_cannot_fund(token, prompt_claim, solver):
 
 
 def test_anyone_can_claim_with_correct_answer(token, funded_prompt_claim, solver):
-    funded_prompt_claim.claim(ANSWER, sender=solver)
+    receipt = funded_prompt_claim.claim(ANSWER, sender=solver)
+    attempts = list(receipt.decode_logs(funded_prompt_claim.ClaimAttempt))
 
     assert funded_prompt_claim.settled()
     assert funded_prompt_claim.winner() == solver.address
     assert token.balanceOf(solver) == AMOUNT
     assert token.balanceOf(funded_prompt_claim.address) == 0
+    assert len(attempts) == 1
+    assert attempts[0].player == solver.address
+    assert attempts[0].answer_hash == keccak(text=ANSWER)
+    assert bool(attempts[0].success)
 
 
 def test_wrong_answer_records_attempt_without_settling(token, funded_prompt_claim, solver):
-    funded_prompt_claim.claim(WRONG_ANSWER, sender=solver)
+    receipt = funded_prompt_claim.claim(WRONG_ANSWER, sender=solver)
+    attempts = list(receipt.decode_logs(funded_prompt_claim.ClaimAttempt))
 
     assert not funded_prompt_claim.settled()
     assert funded_prompt_claim.winner() == "0x0000000000000000000000000000000000000000"
     assert token.balanceOf(solver) == 0
     assert token.balanceOf(funded_prompt_claim.address) == AMOUNT
+    assert len(attempts) == 1
+    assert attempts[0].player == solver.address
+    assert attempts[0].answer_hash == keccak(text=WRONG_ANSWER)
+    assert not bool(attempts[0].success)
 
 
 def test_correct_answer_can_claim_after_wrong_attempt(
