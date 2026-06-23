@@ -13,6 +13,11 @@ event Claimed:
     winner: indexed(address)
     amount: uint256
 
+event ClaimAttempt:
+    player: indexed(address)
+    answer_hash: indexed(bytes32)
+    success: bool
+
 event ClawedBack:
     refund_to: indexed(address)
     amount: uint256
@@ -77,7 +82,11 @@ def claim(_answer: String[128]):
     assert self.funded, "not funded"
     assert not self.settled, "settled"
     assert block.timestamp <= self.deadline, "expired"
-    assert keccak256(convert(_answer, Bytes[128])) == self.answer_hash, "wrong answer"
+
+    submitted_answer_hash: bytes32 = keccak256(convert(_answer, Bytes[128]))
+    if submitted_answer_hash != self.answer_hash:
+        log ClaimAttempt(msg.sender, submitted_answer_hash, False)
+        return
 
     self.settled = True
     self.winner = msg.sender
@@ -89,6 +98,7 @@ def claim(_answer: String[128]):
     )
     assert ok, "transfer failed"
 
+    log ClaimAttempt(msg.sender, submitted_answer_hash, True)
     log Claimed(msg.sender, self.amount)
 
 

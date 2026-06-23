@@ -95,6 +95,8 @@ claim(answer)
 ```
 
 `answer` is a text string, such as `blue candle`.
+Wrong answers are accepted onchain as attempts, but they do not settle the claim
+or transfer the prize.
 
 If nobody claims before the deadline, the creator calls:
 

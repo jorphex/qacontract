@@ -87,11 +87,25 @@ def test_anyone_can_claim_with_correct_answer(token, funded_prompt_claim, solver
     assert token.balanceOf(funded_prompt_claim.address) == 0
 
 
-def test_wrong_answer_cannot_claim(funded_prompt_claim, solver):
-    with ape.reverts("wrong answer"):
-        funded_prompt_claim.claim(WRONG_ANSWER, sender=solver)
+def test_wrong_answer_records_attempt_without_settling(token, funded_prompt_claim, solver):
+    funded_prompt_claim.claim(WRONG_ANSWER, sender=solver)
 
     assert not funded_prompt_claim.settled()
+    assert funded_prompt_claim.winner() == "0x0000000000000000000000000000000000000000"
+    assert token.balanceOf(solver) == 0
+    assert token.balanceOf(funded_prompt_claim.address) == AMOUNT
+
+
+def test_correct_answer_can_claim_after_wrong_attempt(
+    token, funded_prompt_claim, solver, stranger
+):
+    funded_prompt_claim.claim(WRONG_ANSWER, sender=stranger)
+
+    funded_prompt_claim.claim(ANSWER, sender=solver)
+
+    assert funded_prompt_claim.settled()
+    assert funded_prompt_claim.winner() == solver.address
+    assert token.balanceOf(solver) == AMOUNT
 
 
 def test_claim_expires(chain, funded_prompt_claim, solver, deadline):
