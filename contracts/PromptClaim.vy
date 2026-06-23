@@ -59,8 +59,6 @@ def fund():
     assert not self.funded, "already funded"
     assert not self.settled, "settled"
 
-    self.funded = True
-
     ok: bool = extcall ERC20(self.token).transferFrom(
         msg.sender,
         self,
@@ -69,15 +67,17 @@ def fund():
     )
     assert ok, "transfer failed"
 
+    self.funded = True
+
     log Funded(msg.sender, self.amount)
 
 
 @external
-def claim(_answer: Bytes[128]):
+def claim(_answer: String[128]):
     assert self.funded, "not funded"
     assert not self.settled, "settled"
     assert block.timestamp <= self.deadline, "expired"
-    assert keccak256(_answer) == self.answer_hash, "wrong answer"
+    assert keccak256(convert(_answer, Bytes[128])) == self.answer_hash, "wrong answer"
 
     self.settled = True
     self.winner = msg.sender
@@ -109,4 +109,3 @@ def clawback():
     assert ok, "transfer failed"
 
     log ClawedBack(self.refund_to, self.amount)
-

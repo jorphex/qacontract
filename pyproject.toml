@@ -8,4 +8,5 @@ dependencies = [
     "ape-vyper>=0.8.0",
     "eth-ape>=0.8.0",
     "pytest>=8.0.0",
+    "python-dotenv>=1.0.0",
 ]

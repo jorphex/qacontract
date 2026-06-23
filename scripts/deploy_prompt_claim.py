@@ -2,8 +2,11 @@ import os
 
 import click
 from ape import accounts, project
+from dotenv import load_dotenv
 from eth_utils import is_address, to_checksum_address
 
+
+load_dotenv()
 
 BASE_USDC = "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913"
 BASE_SEPOLIA_USDC = "0x036CbD53842c5426634e7929541eC2318f3dCF7e"
@@ -110,4 +113,3 @@ def cli(
         answer_hash,
     )
     click.echo(f"prompt_claim={contract.address}")
-

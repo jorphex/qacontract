@@ -4,8 +4,8 @@ from eth_utils import keccak
 
 
 AMOUNT = 100_000_000
-ANSWER = b"blue candle"
-WRONG_ANSWER = b"red candle"
+ANSWER = "blue candle"
+WRONG_ANSWER = "red candle"
 
 
 @pytest.fixture
@@ -47,7 +47,7 @@ def prompt_claim(project, token, creator, refund_to, deadline):
         refund_to.address,
         AMOUNT,
         deadline,
-        keccak(ANSWER),
+        keccak(text=ANSWER),
         sender=creator,
     )
 
@@ -147,4 +147,3 @@ def test_clawback_prevents_later_claim(funded_prompt_claim, chain, solver, creat
 
     with ape.reverts("settled"):
         funded_prompt_claim.claim(ANSWER, sender=solver)
-

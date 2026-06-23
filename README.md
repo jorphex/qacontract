@@ -60,6 +60,9 @@ uv run ape run deploy_prompt_claim \
   --answer-hash 0xYourAnswerHash
 ```
 
+The deploy and funding scripts also read `.env` automatically, so you can omit
+flags that are already defined there.
+
 `1000000` is `1 USDC` because USDC has 6 decimals.
 
 The deploy script defaults to native Base USDC:
@@ -89,6 +92,8 @@ Anyone can claim before the deadline with:
 ```text
 claim(answer)
 ```
+
+`answer` is a text string, such as `blue candle`.
 
 If nobody claims before the deadline, the creator calls:
 
