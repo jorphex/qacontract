@@ -1,10 +1,15 @@
 # QA Contract
 
-Vyper contract workspace for a single-use prompt-gated ERC20 giveaway:
+Vyper contract workspace for prompt-gated ERC20 giveaways:
 
 - creator funds an ERC20 prize
-- anyone can claim before the deadline with the correct answer
-- creator can claw back after the deadline if unclaimed
+- anyone can submit the correct answer before the deadline
+- creator can claw back when the game rules allow it
+
+Two contract versions are kept in this repo:
+
+- `PromptClaim`: v1 fixed-prize giveaway.
+- `PuzzleGiveaway`: v2 giveaway with manual start and a time-ramped prize.
 
 ## Development
 
@@ -26,7 +31,7 @@ Run tests:
 uv run ape test
 ```
 
-## PromptClaim Flow
+## Answer Hashes
 
 1. Import or create an Ape account:
 
@@ -54,7 +59,9 @@ For example, `uv run ape run hash_answer "Blue Candle" --normalize` hashes:
 blue candle
 ```
 
-3. Deploy on Base:
+## PromptClaim Flow
+
+Deploy v1 on Base:
 
 ```sh
 uv run ape run deploy_prompt_claim \
@@ -78,7 +85,7 @@ The deploy script defaults to native USDC for the selected Base network when
 0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913
 ```
 
-4. Fund the deployed claim:
+Fund the deployed claim:
 
 ```sh
 uv run ape run fund_prompt_claim \
@@ -92,7 +99,7 @@ This sends two transactions:
 - approve USDC spend
 - call `fund()`
 
-5. Post the prompt publicly.
+Post the prompt publicly.
 
 Anyone can claim before the deadline with:
 
@@ -111,6 +118,49 @@ If nobody claims before the deadline, the creator calls:
 ```text
 clawback()
 ```
+
+## PuzzleGiveaway Flow
+
+Deploy and fund v2 on Base:
+
+```sh
+uv run ape run deploy_and_fund_puzzle_giveaway \
+  --network base:mainnet:node \
+  --account your-alias \
+  --refund-to 0xYourRefundAddress \
+  --max-amount 1000000 \
+  --floor-amount 250000 \
+  --deadline 1893456000 \
+  --cliff-seconds 60 \
+  --answer-hash 0xYourAnswerHash
+```
+
+The script deploys `PuzzleGiveaway`, approves token spend, and calls `fund()`.
+It does not start the game unless `--start-now` is passed. The default token is
+native USDC for the selected Base network when `PUZZLEGIVEAWAY_TOKEN` and
+`--token` are omitted.
+
+Start the game when ready:
+
+```sh
+uv run ape run start_puzzle_giveaway \
+  --network base:mainnet:node \
+  --account your-alias \
+  --puzzle-giveaway 0xYourDeployedPuzzleGiveaway
+```
+
+The player-facing write function is:
+
+```text
+submit_answer(answer)
+```
+
+`claimable_amount()` shows the current prize. It starts at `floor_amount`, stays
+there for `cliff_seconds`, then ramps linearly to `max_amount` at `deadline`.
+Wrong answers emit an event but do not settle the game. A correct answer pays
+the current claimable amount and ends the game. The creator can call
+`clawback()` to recover funds before start, after expiry, or after a winner
+leaves leftover funds.
 
 ## Safety
 
