@@ -79,8 +79,14 @@ def cli(account: str, prompt_claim: str, dry_run: bool):
     if amount <= 0:
         raise click.ClickException("PromptClaim amount must be greater than zero")
 
-    approve_receipt = token.approve(prompt_claim, amount, sender=creator)
-    click.echo(f"approve_tx={tx_hash(approve_receipt)}")
+    allowance = token.allowance(creator.address, prompt_claim)
+    click.echo(f"allowance={allowance}")
+
+    if allowance < amount:
+        approve_receipt = token.approve(prompt_claim, amount, sender=creator)
+        click.echo(f"approve_tx={tx_hash(approve_receipt)}")
+    else:
+        click.echo("approve_tx=skipped")
 
     fund_receipt = claim.fund(sender=creator)
     click.echo(f"fund_tx={tx_hash(fund_receipt)}")
