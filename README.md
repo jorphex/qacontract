@@ -40,13 +40,19 @@ uv run ape accounts import your-alias
 uv run ape run hash_answer "Blue Candle"
 ```
 
-The default helper trims and lowercases the answer, so this hashes:
+The helper hashes the answer exactly as typed, because the contract verifies the
+exact submitted string. In this example, the winning answer is:
+
+```text
+Blue Candle
+```
+
+Use `--normalize` only if you intentionally want a stripped, lowercase answer.
+For example, `uv run ape run hash_answer "Blue Candle" --normalize` hashes:
 
 ```text
 blue candle
 ```
-
-Use `--raw` if you want to hash the exact text instead.
 
 3. Deploy on Base:
 
@@ -95,6 +101,8 @@ claim(answer)
 ```
 
 `answer` is a text string, such as `blue candle`.
+Case, spaces, and spelling must match the hashed answer exactly unless you
+created the hash from a normalized answer and told players that normalized form.
 Wrong answers are accepted onchain as attempts, but they do not settle the claim
 or transfer the prize.
 

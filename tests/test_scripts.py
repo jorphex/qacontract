@@ -2,8 +2,10 @@ from types import SimpleNamespace
 
 import click
 import pytest
+from click.testing import CliRunner
+from eth_utils import keccak, to_hex
 
-from scripts import deploy_prompt_claim
+from scripts import deploy_prompt_claim, hash_answer
 
 
 def provider(ecosystem_name: str, network_name: str):
@@ -74,3 +76,22 @@ def test_echo_contract_state_outputs_deployed_values(capsys):
         "deployed_answer_hash=0xhash\n"
     )
 
+
+def test_hash_answer_hashes_exact_input_by_default():
+    result = CliRunner().invoke(hash_answer.cli, ["Seulgi"])
+
+    assert result.exit_code == 0
+    assert result.output == (
+        "hashed_answer=Seulgi\n"
+        f"answer_hash={to_hex(keccak(text='Seulgi'))}\n"
+    )
+
+
+def test_hash_answer_can_normalize_input_when_requested():
+    result = CliRunner().invoke(hash_answer.cli, [" Seulgi ", "--normalize"])
+
+    assert result.exit_code == 0
+    assert result.output == (
+        "hashed_answer=seulgi\n"
+        f"answer_hash={to_hex(keccak(text='seulgi'))}\n"
+    )
