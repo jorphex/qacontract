@@ -10,6 +10,7 @@ from scripts import deploy_and_fund_puzzle_giveaway, start_puzzle_giveaway
 AMOUNT = 1_000_000
 FLOOR = 250_000
 ANSWER_HASH = keccak(text="blue candle")
+ANSWER_HASH_HEX = f"0x{ANSWER_HASH.hex()}"
 
 
 def provider(ecosystem_name: str, network_name: str):
@@ -39,6 +40,14 @@ def deploy_funded_game(project, accounts, chain):
     token.approve(game.address, AMOUNT, sender=creator)
     game.fund(sender=creator)
     return game
+
+
+def deployed_address_from_output(output: str) -> str:
+    for line in output.splitlines():
+        if line.startswith("puzzle_giveaway="):
+            return line.split("=", maxsplit=1)[1]
+
+    raise AssertionError("missing puzzle_giveaway output")
 
 
 def test_default_token_uses_base_mainnet_when_selected(monkeypatch):
@@ -84,6 +93,101 @@ def test_validate_game_values_allows_long_cliff_for_fixed_prize(monkeypatch):
         deadline=200,
         cliff_seconds=100,
     )
+
+
+def test_deploy_and_fund_script_deploys_funds_without_starting(
+    project, accounts, capsys, monkeypatch
+):
+    creator = accounts[0]
+    refund_to = accounts[2]
+    token = project.MockERC20.deploy("USD Coin", "USDC", 6, sender=creator)
+    token.mint(creator, AMOUNT, sender=creator)
+    monkeypatch.setattr(
+        deploy_and_fund_puzzle_giveaway.accounts,
+        "load",
+        lambda _alias: creator,
+    )
+
+    result = deploy_and_fund_puzzle_giveaway.cli.main(
+        args=[
+            "--account",
+            "creator",
+            "--token",
+            token.address,
+            "--refund-to",
+            refund_to.address,
+            "--max-amount",
+            str(AMOUNT),
+            "--floor-amount",
+            str(FLOOR),
+            "--deadline",
+            "4102444800",
+            "--cliff-seconds",
+            "60",
+            "--answer-hash",
+            ANSWER_HASH_HEX,
+            "--network",
+            "ethereum:local:test",
+        ],
+        standalone_mode=False,
+    )
+
+    game = project.PuzzleGiveaway.at(
+        deployed_address_from_output(capsys.readouterr().out)
+    )
+
+    assert result is None
+    assert game.funded()
+    assert not game.started()
+    assert token.balanceOf(game.address) == AMOUNT
+
+
+def test_deploy_and_fund_script_can_start_immediately(
+    project, accounts, capsys, monkeypatch
+):
+    creator = accounts[0]
+    refund_to = accounts[2]
+    token = project.MockERC20.deploy("USD Coin", "USDC", 6, sender=creator)
+    token.mint(creator, AMOUNT, sender=creator)
+    monkeypatch.setattr(
+        deploy_and_fund_puzzle_giveaway.accounts,
+        "load",
+        lambda _alias: creator,
+    )
+
+    result = deploy_and_fund_puzzle_giveaway.cli.main(
+        args=[
+            "--account",
+            "creator",
+            "--token",
+            token.address,
+            "--refund-to",
+            refund_to.address,
+            "--max-amount",
+            str(AMOUNT),
+            "--floor-amount",
+            str(FLOOR),
+            "--deadline",
+            "4102444800",
+            "--cliff-seconds",
+            "60",
+            "--answer-hash",
+            ANSWER_HASH_HEX,
+            "--start-now",
+            "--network",
+            "ethereum:local:test",
+        ],
+        standalone_mode=False,
+    )
+
+    game = project.PuzzleGiveaway.at(
+        deployed_address_from_output(capsys.readouterr().out)
+    )
+
+    assert result is None
+    assert game.funded()
+    assert game.started()
+    assert game.claimable_amount() == FLOOR
 
 
 def test_start_script_starts_funded_game(project, accounts, chain, monkeypatch):

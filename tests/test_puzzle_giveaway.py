@@ -110,6 +110,51 @@ def test_creator_can_cancel_and_claw_back_before_start(project, accounts, chain)
     assert ended_events[0].reason == REASON_CANCELLED_BEFORE_START
 
 
+def test_only_creator_can_fund_start_and_clawback(project, accounts, chain):
+    creator = accounts[0]
+    stranger = accounts[3]
+    token, game = deploy_game(project, accounts, chain)
+
+    with ape.reverts("not creator"):
+        game.fund(sender=stranger)
+
+    fund_game(token, game, creator)
+
+    with ape.reverts("not creator"):
+        game.start_game(sender=stranger)
+
+    game.start_game(sender=creator)
+    chain.pending_timestamp = game.deadline() + 1
+    chain.mine()
+
+    with ape.reverts("not creator"):
+        game.clawback(sender=stranger)
+
+
+def test_creator_cannot_clawback_during_active_game(project, accounts, chain):
+    creator = accounts[0]
+    token, game = deploy_game(project, accounts, chain)
+    fund_game(token, game, creator)
+    game.start_game(sender=creator)
+
+    with ape.reverts("not expired"):
+        game.clawback(sender=creator)
+
+
+def test_fund_and_start_are_single_use(project, accounts, chain):
+    creator = accounts[0]
+    token, game = deploy_game(project, accounts, chain)
+    fund_game(token, game, creator)
+
+    with ape.reverts("already funded"):
+        game.fund(sender=creator)
+
+    game.start_game(sender=creator)
+
+    with ape.reverts("already started"):
+        game.start_game(sender=creator)
+
+
 def test_expiry_blocks_answers_then_allows_clawback(project, accounts, chain):
     creator = accounts[0]
     solver = accounts[1]
