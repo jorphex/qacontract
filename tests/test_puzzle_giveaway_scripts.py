@@ -9,6 +9,7 @@ from scripts import deploy_and_fund_puzzle_giveaway, start_puzzle_giveaway
 
 AMOUNT = 1_000_000
 FLOOR = 250_000
+PROMPT = "What color is the candle?"
 ANSWER_HASH = keccak(text="blue candle")
 ANSWER_HASH_HEX = f"0x{ANSWER_HASH.hex()}"
 
@@ -30,6 +31,7 @@ def deploy_funded_game(project, accounts, chain):
     game = project.PuzzleGiveaway.deploy(
         token.address,
         refund_to.address,
+        PROMPT,
         AMOUNT,
         FLOOR,
         chain.pending_timestamp + 3600,
@@ -65,6 +67,7 @@ def test_validate_game_values_rejects_bad_floor(monkeypatch):
 
     with pytest.raises(click.BadParameter, match="floor-amount cannot exceed"):
         deploy_and_fund_puzzle_giveaway.validate_game_values(
+            prompt=PROMPT,
             max_amount=100,
             floor_amount=101,
             deadline=200,
@@ -77,6 +80,7 @@ def test_validate_game_values_rejects_cliff_that_reaches_deadline(monkeypatch):
 
     with pytest.raises(click.BadParameter, match="deadline must be after"):
         deploy_and_fund_puzzle_giveaway.validate_game_values(
+            prompt=PROMPT,
             max_amount=100,
             floor_amount=1,
             deadline=200,
@@ -88,11 +92,38 @@ def test_validate_game_values_allows_long_cliff_for_fixed_prize(monkeypatch):
     monkeypatch.setattr(deploy_and_fund_puzzle_giveaway.time, "time", lambda: 100)
 
     deploy_and_fund_puzzle_giveaway.validate_game_values(
+        prompt=PROMPT,
         max_amount=100,
         floor_amount=100,
         deadline=200,
         cliff_seconds=100,
     )
+
+
+def test_validate_game_values_rejects_empty_prompt(monkeypatch):
+    monkeypatch.setattr(deploy_and_fund_puzzle_giveaway.time, "time", lambda: 100)
+
+    with pytest.raises(click.BadParameter, match="prompt must not be empty"):
+        deploy_and_fund_puzzle_giveaway.validate_game_values(
+            prompt="",
+            max_amount=100,
+            floor_amount=1,
+            deadline=200,
+            cliff_seconds=0,
+        )
+
+
+def test_validate_game_values_rejects_prompt_over_256_bytes(monkeypatch):
+    monkeypatch.setattr(deploy_and_fund_puzzle_giveaway.time, "time", lambda: 100)
+
+    with pytest.raises(click.BadParameter, match="prompt must fit"):
+        deploy_and_fund_puzzle_giveaway.validate_game_values(
+            prompt="x" * 257,
+            max_amount=100,
+            floor_amount=1,
+            deadline=200,
+            cliff_seconds=0,
+        )
 
 
 def test_deploy_and_fund_script_deploys_funds_without_starting(
@@ -116,6 +147,8 @@ def test_deploy_and_fund_script_deploys_funds_without_starting(
             token.address,
             "--refund-to",
             refund_to.address,
+            "--prompt",
+            PROMPT,
             "--max-amount",
             str(AMOUNT),
             "--floor-amount",
@@ -137,6 +170,7 @@ def test_deploy_and_fund_script_deploys_funds_without_starting(
     )
 
     assert result is None
+    assert game.prompt() == PROMPT
     assert game.funded()
     assert not game.started()
     assert token.balanceOf(game.address) == AMOUNT
@@ -163,6 +197,8 @@ def test_deploy_and_fund_script_can_start_immediately(
             token.address,
             "--refund-to",
             refund_to.address,
+            "--prompt",
+            PROMPT,
             "--max-amount",
             str(AMOUNT),
             "--floor-amount",
@@ -185,6 +221,7 @@ def test_deploy_and_fund_script_can_start_immediately(
     )
 
     assert result is None
+    assert game.prompt() == PROMPT
     assert game.funded()
     assert game.started()
     assert game.claimable_amount() == FLOOR

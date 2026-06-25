@@ -48,6 +48,7 @@ REASON_CANCELLED_BEFORE_START: constant(uint256) = 3
 token: public(address)
 creator: public(address)
 refund_to: public(address)
+prompt: public(String[256])
 
 max_amount: public(uint256)
 floor_amount: public(uint256)
@@ -69,6 +70,7 @@ clawed_back_amount: public(uint256)
 def __init__(
     _token: address,
     _refund_to: address,
+    _prompt: String[256],
     _max_amount: uint256,
     _floor_amount: uint256,
     _deadline: uint256,
@@ -79,6 +81,7 @@ def __init__(
     @notice Sets immutable giveaway rules.
     @param _token ERC20 prize token.
     @param _refund_to Address that receives creator clawbacks.
+    @param _prompt Public prompt players solve.
     @param _max_amount Maximum prize funded into the contract.
     @param _floor_amount Starting prize after the game begins.
     @param _deadline Last timestamp where a correct answer can win.
@@ -87,6 +90,7 @@ def __init__(
     """
     assert _token != empty(address), "bad token"
     assert _refund_to != empty(address), "bad refund"
+    assert len(_prompt) > 0, "bad prompt"
     assert _max_amount > 0, "bad max"
     assert _floor_amount > 0, "bad floor"
     assert _floor_amount <= _max_amount, "floor too high"
@@ -96,6 +100,7 @@ def __init__(
     self.token = _token
     self.creator = msg.sender
     self.refund_to = _refund_to
+    self.prompt = _prompt
     self.max_amount = _max_amount
     self.floor_amount = _floor_amount
     self.deadline = _deadline

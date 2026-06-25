@@ -128,6 +128,7 @@ uv run ape run deploy_and_fund_puzzle_giveaway \
   --network base:mainnet:node \
   --account your-alias \
   --refund-to 0xYourRefundAddress \
+  --prompt "What is the answer?" \
   --max-amount 1000000 \
   --floor-amount 250000 \
   --deadline 1893456000 \
@@ -135,10 +136,10 @@ uv run ape run deploy_and_fund_puzzle_giveaway \
   --answer-hash 0xYourAnswerHash
 ```
 
-The script deploys `PuzzleGiveaway`, approves token spend, and calls `fund()`.
-It does not start the game unless `--start-now` is passed. The default token is
-native USDC for the selected Base network when `PUZZLEGIVEAWAY_TOKEN` and
-`--token` are omitted.
+The script deploys `PuzzleGiveaway`, stores the public `prompt`, approves token
+spend, and calls `fund()`. It does not start the game unless `--start-now` is
+passed. The default token is native USDC for the selected Base network when
+`PUZZLEGIVEAWAY_TOKEN` and `--token` are omitted.
 
 Start the game when ready:
 
@@ -155,12 +156,12 @@ The player-facing write function is:
 submit_answer(answer)
 ```
 
-`claimable_amount()` shows the current prize. It starts at `floor_amount`, stays
-there for `cliff_seconds`, then ramps linearly to `max_amount` at `deadline`.
-Wrong answers emit an event but do not settle the game. A correct answer pays
-the current claimable amount and ends the game. The creator can call
-`clawback()` to recover funds before start, after expiry, or after a winner
-leaves leftover funds.
+`prompt()` shows the public puzzle prompt. `claimable_amount()` shows the
+current prize. It starts at `floor_amount`, stays there for `cliff_seconds`,
+then ramps linearly to `max_amount` at `deadline`. Wrong answers emit an event
+but do not settle the game. A correct answer pays the current claimable amount
+and ends the game. The creator can call `clawback()` to recover funds before
+start, after expiry, or after a winner leaves leftover funds.
 
 ## Safety
 

@@ -60,11 +60,18 @@ def parse_answer_hash(value: str) -> str:
 
 
 def validate_game_values(
+    prompt: str,
     max_amount: int,
     floor_amount: int,
     deadline: int,
     cliff_seconds: int,
 ):
+    if not prompt:
+        raise click.BadParameter("prompt must not be empty")
+
+    if len(prompt.encode()) > 256:
+        raise click.BadParameter("prompt must fit in 256 bytes")
+
     if max_amount <= 0:
         raise click.BadParameter("max-amount must be greater than zero")
 
@@ -91,6 +98,7 @@ def echo_contract_state(contract):
     click.echo(f"deployed_creator={contract.creator()}")
     click.echo(f"deployed_token={contract.token()}")
     click.echo(f"deployed_refund_to={contract.refund_to()}")
+    click.echo(f"deployed_prompt={contract.prompt()}")
     click.echo(f"deployed_max_amount={contract.max_amount()}")
     click.echo(f"deployed_floor_amount={contract.floor_amount()}")
     click.echo(f"deployed_deadline={contract.deadline()}")
@@ -122,6 +130,12 @@ def echo_contract_state(contract):
     envvar="PUZZLEGIVEAWAY_REFUND_TO",
     required=True,
     help="Address that receives clawback funds.",
+)
+@click.option(
+    "--prompt",
+    envvar="PUZZLEGIVEAWAY_PROMPT",
+    required=True,
+    help="Public puzzle prompt shown by the contract.",
 )
 @click.option(
     "--max-amount",
@@ -174,6 +188,7 @@ def cli(
     account: str,
     token: str | None,
     refund_to: str,
+    prompt: str,
     max_amount: int,
     floor_amount: int,
     deadline: int,
@@ -185,12 +200,13 @@ def cli(
     token = token or default_token(provider)
     token = parse_address(token, "token")
     refund_to = parse_address(refund_to, "refund-to")
-    validate_game_values(max_amount, floor_amount, deadline, cliff_seconds)
+    validate_game_values(prompt, max_amount, floor_amount, deadline, cliff_seconds)
 
     click.echo("PuzzleGiveaway deployment and funding")
     click.echo(f"account={account}")
     click.echo(f"token={token}")
     click.echo(f"refund_to={refund_to}")
+    click.echo(f"prompt={prompt}")
     click.echo(f"max_amount={max_amount}")
     click.echo(f"floor_amount={floor_amount}")
     click.echo(f"deadline={deadline}")
@@ -206,6 +222,7 @@ def cli(
         project.PuzzleGiveaway,
         token,
         refund_to,
+        prompt,
         max_amount,
         floor_amount,
         deadline,

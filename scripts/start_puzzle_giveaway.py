@@ -29,6 +29,7 @@ def echo_game_state(game):
     click.echo(f"creator={game.creator()}")
     click.echo(f"token={game.token()}")
     click.echo(f"refund_to={game.refund_to()}")
+    click.echo(f"prompt={game.prompt()}")
     click.echo(f"max_amount={game.max_amount()}")
     click.echo(f"floor_amount={game.floor_amount()}")
     click.echo(f"deadline={game.deadline()}")

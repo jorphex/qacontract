@@ -5,6 +5,7 @@ from eth_utils import keccak
 AMOUNT = 1_000_000
 FLOOR = 250_000
 CLIFF = 300
+PROMPT = "What color is the candle?"
 ANSWER = "blue candle"
 WRONG_ANSWER = "red candle"
 REASON_WON = 1
@@ -20,6 +21,7 @@ def deploy_game(project, accounts, chain, floor=FLOOR, cliff=CLIFF, deadline_off
     game = project.PuzzleGiveaway.deploy(
         token.address,
         refund_to.address,
+        PROMPT,
         AMOUNT,
         floor,
         chain.pending_timestamp + deadline_offset,
@@ -44,6 +46,7 @@ def test_main_flow_records_wrong_answer_pays_winner_and_claws_back_leftover(
     token, game = deploy_game(project, accounts, chain)
 
     assert game.claimable_amount() == 0
+    assert game.prompt() == PROMPT
     assert not game.is_active()
 
     fund_game(token, game, creator)
@@ -225,3 +228,22 @@ def test_fixed_prize_can_start_with_long_cliff(project, accounts, chain):
     game.start_game(sender=creator)
 
     assert game.claimable_amount() == AMOUNT
+
+
+def test_prompt_must_not_be_empty(project, accounts, chain):
+    creator = accounts[0]
+    refund_to = accounts[2]
+    token = project.MockERC20.deploy("USD Coin", "USDC", 6, sender=creator)
+
+    with ape.reverts("bad prompt"):
+        project.PuzzleGiveaway.deploy(
+            token.address,
+            refund_to.address,
+            "",
+            AMOUNT,
+            FLOOR,
+            chain.pending_timestamp + 3600,
+            CLIFF,
+            keccak(text=ANSWER),
+            sender=creator,
+        )
