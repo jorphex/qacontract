@@ -33,6 +33,21 @@ def test_default_token_uses_base_sepolia_when_selected(monkeypatch):
     assert token == deploy_prompt_claim.BASE_SEPOLIA_USDC
 
 
+def test_default_token_uses_active_provider_when_callback_provider_missing(
+    monkeypatch,
+):
+    monkeypatch.delenv("PROMPTCLAIM_TOKEN", raising=False)
+    monkeypatch.setattr(
+        deploy_prompt_claim.networks,
+        "active_provider",
+        provider("base", "sepolia"),
+    )
+
+    token = deploy_prompt_claim.default_token(None)
+
+    assert token == deploy_prompt_claim.BASE_SEPOLIA_USDC
+
+
 def test_explicit_token_env_overrides_network_default(monkeypatch):
     token_override = "0x000000000000000000000000000000000000dEaD"
     monkeypatch.setenv("PROMPTCLAIM_TOKEN", token_override)

@@ -62,6 +62,42 @@ def test_default_token_uses_base_mainnet_when_selected(monkeypatch):
     assert token == deploy_and_fund_puzzle_giveaway.BASE_USDC
 
 
+def test_default_token_uses_base_sepolia_when_selected(monkeypatch):
+    monkeypatch.delenv("PUZZLEGIVEAWAY_TOKEN", raising=False)
+
+    token = deploy_and_fund_puzzle_giveaway.default_token(
+        provider("base", "sepolia")
+    )
+
+    assert token == deploy_and_fund_puzzle_giveaway.BASE_SEPOLIA_USDC
+
+
+def test_default_token_uses_active_provider_when_callback_provider_missing(
+    monkeypatch,
+):
+    monkeypatch.delenv("PUZZLEGIVEAWAY_TOKEN", raising=False)
+    monkeypatch.setattr(
+        deploy_and_fund_puzzle_giveaway.networks,
+        "active_provider",
+        provider("base", "sepolia"),
+    )
+
+    token = deploy_and_fund_puzzle_giveaway.default_token(None)
+
+    assert token == deploy_and_fund_puzzle_giveaway.BASE_SEPOLIA_USDC
+
+
+def test_explicit_token_env_overrides_network_default(monkeypatch):
+    token_override = "0x000000000000000000000000000000000000dEaD"
+    monkeypatch.setenv("PUZZLEGIVEAWAY_TOKEN", token_override)
+
+    token = deploy_and_fund_puzzle_giveaway.default_token(
+        provider("base", "sepolia")
+    )
+
+    assert token == token_override
+
+
 def test_validate_game_values_rejects_bad_floor(monkeypatch):
     monkeypatch.setattr(deploy_and_fund_puzzle_giveaway.time, "time", lambda: 100)
 

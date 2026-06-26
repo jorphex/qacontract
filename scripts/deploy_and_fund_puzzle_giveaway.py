@@ -2,7 +2,7 @@ import os
 import time
 
 import click
-from ape import accounts, project
+from ape import accounts, networks, project
 from ape.cli import ConnectedProviderCommand
 from dotenv import load_dotenv
 from eth_utils import is_address, to_checksum_address
@@ -23,6 +23,7 @@ def default_token(provider) -> str:
     if token := os.environ.get("PUZZLEGIVEAWAY_TOKEN"):
         return token
 
+    provider = provider or networks.active_provider
     if provider is None:
         return BASE_USDC
 
