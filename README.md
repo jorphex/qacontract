@@ -6,10 +6,11 @@ Vyper contract workspace for prompt-gated ERC20 giveaways:
 - anyone can submit the correct answer before the deadline
 - creator can claw back when the game rules allow it
 
-Two contract versions are kept in this repo:
+Three contract versions are kept in this repo:
 
 - `PromptClaim`: v1 fixed-prize giveaway.
 - `PuzzleGiveaway`: v2 giveaway with manual start and a time-ramped prize.
+- `PuzzleGiveawayV3`: v3 giveaway with manual start and a convex prize ramp.
 
 ## Development
 
@@ -121,7 +122,7 @@ clawback()
 
 ## PuzzleGiveaway Flow
 
-Deploy and fund v2 on Base:
+Deploy and fund v2 on Base mainnet:
 
 ```sh
 uv run ape run deploy_and_fund_puzzle_giveaway \
@@ -140,6 +141,21 @@ The script deploys `PuzzleGiveaway`, stores the public `prompt`, approves token
 spend, and calls `fund()`. It does not start the game unless `--start-now` is
 passed. The default token is native USDC for the selected Base network when
 `PUZZLEGIVEAWAY_TOKEN` and `--token` are omitted.
+
+For a Base Sepolia test deployment, use the same command with:
+
+```sh
+--network base:sepolia:node
+```
+
+The script defaults to Circle's Base Sepolia USDC when that network is selected:
+
+```text
+0x036CbD53842c5426634e7929541eC2318f3dCF7e
+```
+
+An explicit `PUZZLEGIVEAWAY_TOKEN` in `.env` or a `--token` flag always
+overrides the network default, so remove or update it before testnet runs.
 
 Start the game when ready:
 
@@ -163,6 +179,51 @@ but do not settle the game. A correct answer pays the current claimable amount
 and ends the game. The creator can call `clawback()` to recover funds before
 start, after expiry, or after a winner leaves leftover funds.
 
+## PuzzleGiveawayV3 Flow
+
+Deploy and fund v3 on Base mainnet:
+
+```sh
+uv run ape run deploy_and_fund_puzzle_giveaway_v3 \
+  --network base:mainnet:node \
+  --account your-alias \
+  --refund-to 0xYourRefundAddress \
+  --prompt "What is the answer?" \
+  --max-amount 1000000 \
+  --floor-amount 10000 \
+  --deadline 1893456000 \
+  --cliff-seconds 60 \
+  --curve-exponent 2 \
+  --answer-hash 0xYourAnswerHash
+```
+
+`--curve-exponent 2` creates a quadratic ramp. `--curve-exponent 3` creates a
+cubic ramp. Both keep the prize flat at `floor_amount` through the cliff, then
+back-load the increase toward expiry. The script defaults to quadratic when the
+flag and `PUZZLEGIVEAWAY_V3_CURVE_EXPONENT` are omitted.
+
+For a Base Sepolia test deployment, use the same command with:
+
+```sh
+--network base:sepolia:node
+```
+
+The v3 script defaults to Circle's Base Sepolia USDC when that network is
+selected, unless `PUZZLEGIVEAWAY_V3_TOKEN` or `--token` is set:
+
+```text
+0x036CbD53842c5426634e7929541eC2318f3dCF7e
+```
+
+Start the v3 game when ready:
+
+```sh
+uv run ape run start_puzzle_giveaway_v3 \
+  --network base:mainnet:node \
+  --account your-alias \
+  --puzzle-giveaway-v3 0xYourDeployedPuzzleGiveawayV3
+```
+
 ## Safety
 
 Never commit private keys, seed phrases, RPC keys, or real `.env` files.
@@ -171,4 +232,10 @@ Circle lists native Base USDC at:
 
 ```text
 0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913
+```
+
+Circle lists native Base Sepolia USDC at:
+
+```text
+0x036CbD53842c5426634e7929541eC2318f3dCF7e
 ```
