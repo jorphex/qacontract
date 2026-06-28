@@ -76,6 +76,7 @@ clawed_back_amount: public(uint256)
 shots_used: public(HashMap[address, uint256])
 
 king_answer_hash: bytes32
+banked_correct_hold: HashMap[address, uint256]
 candidate_winner: address
 candidate_prize_amount: uint256
 
@@ -148,26 +149,40 @@ def _curve_bps(_progress_bps: uint256) -> uint256:
 
 @internal
 @view
-def _reign_prize(_since: uint256, _until: uint256) -> uint256:
-    if _since == 0 or _until < _since:
+def _prize_for_hold(_hold_time: uint256) -> uint256:
+    if self.game_duration == 0:
         return 0
 
     if self.floor_amount == self.max_amount:
         return self.max_amount
 
-    if self.game_duration == 0:
-        return 0
-
-    elapsed: uint256 = _until - _since
-    if elapsed >= self.game_duration:
+    if _hold_time >= self.game_duration:
         return self.max_amount
 
-    progress_bps: uint256 = elapsed * BPS // self.game_duration
+    progress_bps: uint256 = _hold_time * BPS // self.game_duration
     curve_bps: uint256 = self._curve_bps(progress_bps)
 
     return self.floor_amount + (
         (self.max_amount - self.floor_amount) * curve_bps // BPS
     )
+
+
+@internal
+@view
+def _reign_hold(_since: uint256, _until: uint256) -> uint256:
+    if _since == 0 or _until < _since:
+        return 0
+
+    return _until - _since
+
+
+@internal
+@view
+def _reign_prize(_since: uint256, _until: uint256) -> uint256:
+    if _since == 0 or _until < _since:
+        return 0
+
+    return self._prize_for_hold(_until - _since)
 
 
 @internal
@@ -178,7 +193,15 @@ def _record_current_reign(_ended_at: uint256):
     if self.king_answer_hash != self.answer_hash:
         return
 
-    prize_amount: uint256 = self._reign_prize(self.king_since, _ended_at)
+    correct_hold: uint256 = (
+        self.banked_correct_hold[self.king]
+        + self._reign_hold(self.king_since, _ended_at)
+    )
+    if correct_hold > self.game_duration:
+        correct_hold = self.game_duration
+
+    self.banked_correct_hold[self.king] = correct_hold
+    prize_amount: uint256 = self._prize_for_hold(correct_hold)
 
     self.candidate_winner = self.king
     self.candidate_prize_amount = prize_amount
@@ -265,7 +288,7 @@ def shoot(_answer: String[128]):
 @external
 def finalize():
     """
-    @notice Ends the game after expiry and pays the latest correct reign.
+    @notice Ends the game after expiry and pays the latest correct holder.
     """
     assert self.funded, "not funded"
     assert self.started, "not started"
@@ -352,7 +375,7 @@ def clawback():
 @view
 def king_prize() -> uint256:
     """
-    @notice Returns the current hill prize if the visible king held until now.
+    @notice Returns the visible current-reign prize, excluding private banked hold time.
     """
     if self.king == empty(address):
         return 0
@@ -371,6 +394,15 @@ def prize_at(_since: uint256, _until: uint256) -> uint256:
     @notice Returns the prize for a hypothetical reign window.
     """
     return self._reign_prize(_since, _until)
+
+
+@external
+@view
+def prize_for_hold_time(_hold_time: uint256) -> uint256:
+    """
+    @notice Returns the prize for a cumulative hold time.
+    """
+    return self._prize_for_hold(_hold_time)
 
 
 @external

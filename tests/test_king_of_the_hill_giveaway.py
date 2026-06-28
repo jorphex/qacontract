@@ -52,15 +52,21 @@ def expected_prize(game, since, until):
     if until < since:
         return 0
 
+    return expected_prize_for_hold(game, until - since)
+
+
+def expected_prize_for_hold(game, hold_time):
+    game_duration = game.game_duration()
+    if game_duration == 0:
+        return 0
+
     if game.floor_amount() == game.max_amount():
         return game.max_amount()
 
-    elapsed = until - since
-    game_duration = game.game_duration()
-    if elapsed >= game_duration:
+    if hold_time >= game_duration:
         return game.max_amount()
 
-    progress_bps = elapsed * BPS // game_duration
+    progress_bps = hold_time * BPS // game_duration
     curve_bps = progress_bps
     if game.curve_exponent() >= 2:
         curve_bps = progress_bps * progress_bps // BPS
@@ -159,6 +165,104 @@ def test_current_correct_king_wins_reign_through_deadline(project, accounts, cha
     assert token.balanceOf(alice) == expected
 
 
+def test_correct_holder_resumes_banked_hold_after_recapture(
+    project, accounts, chain
+):
+    creator = accounts[0]
+    alice = accounts[1]
+    bob = accounts[2]
+    token, game = deploy_game(project, accounts, chain)
+    fund_and_start(token, game, creator)
+
+    game.shoot(ANSWER, sender=alice)
+    first_start = game.king_since()
+
+    chain.pending_timestamp = first_start + 200
+    chain.mine()
+    game.shoot(WRONG_ANSWER, sender=bob)
+    first_hold = game.king_since() - first_start
+
+    chain.pending_timestamp = game.king_since() + 100
+    chain.mine()
+    game.shoot(ANSWER, sender=alice)
+    second_start = game.king_since()
+
+    assert game.king_prize() == FLOOR
+
+    chain.pending_timestamp = game.deadline() + 1
+    chain.mine()
+    game.finalize(sender=creator)
+
+    expected = expected_prize_for_hold(game, first_hold + (game.deadline() - second_start))
+
+    assert game.winner() == alice.address
+    assert game.paid_amount() == expected
+    assert token.balanceOf(alice) == expected
+    assert game.paid_amount() > expected_prize(game, second_start, game.deadline())
+
+
+def test_wrong_holder_does_not_bank_time_for_later_correct_recapture(
+    project, accounts, chain
+):
+    creator = accounts[0]
+    alice = accounts[1]
+    bob = accounts[2]
+    token, game = deploy_game(project, accounts, chain)
+    fund_and_start(token, game, creator)
+
+    game.shoot(WRONG_ANSWER, sender=alice)
+
+    chain.pending_timestamp = game.king_since() + 200
+    chain.mine()
+    game.shoot(WRONG_ANSWER, sender=bob)
+
+    chain.pending_timestamp = game.king_since() + 100
+    chain.mine()
+    game.shoot(ANSWER, sender=alice)
+    correct_start = game.king_since()
+
+    chain.pending_timestamp = game.deadline() + 1
+    chain.mine()
+    game.finalize(sender=creator)
+
+    expected = expected_prize(game, correct_start, game.deadline())
+
+    assert game.winner() == alice.address
+    assert game.paid_amount() == expected
+    assert token.balanceOf(alice) == expected
+
+
+def test_wrong_recapture_does_not_increase_previous_correct_bank(
+    project, accounts, chain
+):
+    creator = accounts[0]
+    alice = accounts[1]
+    bob = accounts[2]
+    token, game = deploy_game(project, accounts, chain)
+    fund_and_start(token, game, creator)
+
+    game.shoot(ANSWER, sender=alice)
+    first_start = game.king_since()
+
+    chain.pending_timestamp = first_start + 200
+    chain.mine()
+    game.shoot(WRONG_ANSWER, sender=bob)
+    first_hold = game.king_since() - first_start
+    expected = expected_prize_for_hold(game, first_hold)
+
+    chain.pending_timestamp = game.king_since() + 100
+    chain.mine()
+    game.shoot(WRONG_ANSWER, sender=alice)
+
+    chain.pending_timestamp = game.deadline() + 1
+    chain.mine()
+    game.finalize(sender=creator)
+
+    assert game.winner() == alice.address
+    assert game.paid_amount() == expected
+    assert token.balanceOf(alice) == expected
+
+
 def test_correct_shot_at_exact_deadline_wins_floor(project, accounts, chain):
     creator = accounts[0]
     alice = accounts[1]
@@ -174,6 +278,35 @@ def test_correct_shot_at_exact_deadline_wins_floor(project, accounts, chain):
     assert game.winner() == alice.address
     assert game.paid_amount() == FLOOR
     assert token.balanceOf(alice) == FLOOR
+
+
+def test_prize_helpers_distinguish_invalid_and_zero_hold(
+    project, accounts, chain
+):
+    creator = accounts[0]
+    token, game = deploy_game(project, accounts, chain)
+    fund_and_start(token, game, creator)
+
+    since = game.start_time() + 10
+
+    assert game.prize_at(0, since) == 0
+    assert game.prize_at(since, since - 1) == 0
+    assert game.prize_at(since, since) == FLOOR
+    assert game.prize_for_hold_time(0) == FLOOR
+
+
+def test_fixed_prize_helper_returns_zero_before_start(project, accounts, chain):
+    creator = accounts[0]
+    token, game = deploy_game(project, accounts, chain, floor=AMOUNT)
+
+    assert game.game_duration() == 0
+    assert game.prize_for_hold_time(0) == 0
+    assert game.prize_at(chain.pending_timestamp, chain.pending_timestamp) == 0
+
+    fund_and_start(token, game, creator)
+
+    assert game.prize_for_hold_time(0) == AMOUNT
+    assert game.prize_at(game.start_time(), game.start_time()) == AMOUNT
 
 
 def test_wrong_shot_at_exact_deadline_does_not_erase_latest_correct_reign(
