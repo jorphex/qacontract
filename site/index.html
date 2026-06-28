@@ -1,0 +1,121 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>King of the Hill v4 - Live Game</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600;700&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="styles.css" />
+  <script src="assets/ethers.umd.min.js"></script>
+</head>
+<body>
+  <!-- WebGL animated background -->
+  <canvas id="gl"></canvas>
+
+  <header class="site-header">
+    <div class="brand">
+      <span class="crown">♔</span>
+      <h1>King of the Hill <span class="version">v4</span></h1>
+    </div>
+    <span class="header-note">Read-only live view</span>
+  </header>
+
+  <div class="site-notice">
+    This UI reflects the contract's state, but always verify directly on Basescan before acting.
+  </div>
+
+  <main class="container">
+    <section class="hero">
+      <div class="hero-text">
+        <h2>Last Correct Reign Wins</h2>
+        <p>
+          Watch the game live. Any capture resets the visible prize curve to the floor,
+          but only correct hold time banks toward the final prize. Banked time is hidden on-chain,
+          so the live chart never leaks who answered correctly. The last correct reign before the
+          deadline wins, and correctness is revealed only after the game ends.
+        </p>
+      </div>
+      <div class="hero-viz">
+        <canvas id="viz"></canvas>
+      </div>
+    </section>
+
+    <section class="stats-grid">
+      <div class="stat-card">
+        <span class="stat-label">Game Status</span>
+        <span class="stat-value" id="status">—</span>
+      </div>
+      <div class="stat-card">
+        <span class="stat-label">Prize Pool</span>
+        <span class="stat-value" id="pool">—</span>
+      </div>
+      <div class="stat-card">
+        <span class="stat-label">Current Reign Prize</span>
+        <span class="stat-value" id="prize">—</span>
+      </div>
+      <div class="stat-card">
+        <span class="stat-label">Time Left</span>
+        <span class="stat-value" id="timer">—</span>
+      </div>
+    </section>
+
+    <section class="basescan-card">
+      <h3>Play on Basescan</h3>
+      <p class="hint">This page is read-only. To capture the hill, call the contract directly.</p>
+      <ul>
+        <li>Open the contract on <a id="basescan-link" href="#" target="_blank" rel="noopener">Basescan →</a></li>
+        <li>Read <code>prompt()</code> to see the exact question.</li>
+        <li>Check <code>shots_remaining(yourAddress)</code> before spending gas.</li>
+        <li>Connect your wallet and call <code>shoot(answer)</code> with your answer.</li>
+      </ul>
+    </section>
+
+    <section class="king-card">
+      <h3>Current King</h3>
+      <div class="king-content" id="king">
+        <span class="king-empty">No one holds the hill yet.</span>
+      </div>
+    </section>
+
+    <section class="history-section">
+      <h3>Reign History</h3>
+      <div class="table-wrap">
+        <table id="history">
+          <thead>
+            <tr>
+              <th>Time</th>
+              <th>Player</th>
+              <th>Reign Prize</th>
+            </tr>
+          </thead>
+          <tbody id="history-body">
+            <tr class="empty-row">
+              <td colspan="3">No reigns yet.</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+    </section>
+
+    <section class="rules-section">
+      <h3>How It Works</h3>
+      <ul>
+        <li>Call <code>shoot(answer)</code> to capture the hill. Every address has a limited number of shots.</li>
+        <li>Each capture resets the visible prize curve to the floor.</li>
+        <li>Only time held with the <strong>correct answer</strong> banks toward the final prize.</li>
+        <li>Recapturing with the correct answer resumes your hidden bank from where it left off.</li>
+        <li>The last <strong>correct</strong> reign before the deadline wins the banked prize.</li>
+        <li>If no correct reign exists at the end, the creator can claw back the pool.</li>
+      </ul>
+    </section>
+  </main>
+
+  <footer class="site-footer">
+    <p>Read-only live view of the King of the Hill v4 game.</p>
+  </footer>
+
+  <script type="module" src="app.js"></script>
+</body>
+</html>
