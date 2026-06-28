@@ -1,7 +1,7 @@
 [project]
 name = "qacontract"
 version = "0.1.0"
-description = "Prompt-gated ERC20 claim contract"
+description = "Onchain ERC20 giveaway game contracts"
 readme = "README.md"
 requires-python = ">=3.11,<3.14"
 dependencies = [
@@ -13,3 +13,4 @@ dependencies = [
 
 [tool.pytest.ini_options]
 pythonpath = ["."]
+norecursedirs = ["deprecated"]
