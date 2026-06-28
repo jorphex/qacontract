@@ -8,5 +8,6 @@ __pycache__/
 .env
 .env.*
 !.env.example
+logs/
 /king_of_the_hill_chart.py
 /king_of_the_hill_chart.png

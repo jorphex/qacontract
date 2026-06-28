@@ -4,7 +4,11 @@ import click
 import pytest
 from eth_utils import keccak
 
-from scripts import deploy_and_fund_king_of_the_hill, start_king_of_the_hill
+from scripts import (
+    deploy_and_fund_king_of_the_hill,
+    simulate_king_of_the_hill_gameplay,
+    start_king_of_the_hill,
+)
 
 
 AMOUNT = 1_000_000
@@ -52,6 +56,31 @@ def deployed_address_from_output(output: str) -> str:
             return line.split("=", maxsplit=1)[1]
 
     raise AssertionError("missing king_of_the_hill output")
+
+
+def simulated_address_from_output(output: str) -> str:
+    for line in output.splitlines():
+        if line.startswith("scenario_1_king_of_the_hill="):
+            return line.split("=", maxsplit=1)[1]
+
+    raise AssertionError("missing scenario game output")
+
+
+def clear_simulation_env(monkeypatch):
+    for name in (
+        "KINGOFTHEHILL_PRIVATE_KEY",
+        "KINGOFTHEHILL_PLAYER1_PRIVATE_KEY",
+        "KINGOFTHEHILL_PLAYER2_PRIVATE_KEY",
+        "KINGOFTHEHILL_PLAYER3_PRIVATE_KEY",
+        "KINGOFTHEHILL_ACCOUNT_PASSPHRASE",
+        "KINGOFTHEHILL_PLAYER1_PASSPHRASE",
+        "KINGOFTHEHILL_PLAYER2_PASSPHRASE",
+        "KINGOFTHEHILL_PLAYER3_PASSPHRASE",
+        "KINGOFTHEHILL_SIM_DEADLINE",
+        "KINGOFTHEHILL_SIM_SLEEP_BETWEEN_SHOTS",
+        "KINGOFTHEHILL_SIM_LOG_FORMAT",
+    ):
+        monkeypatch.delenv(name, raising=False)
 
 
 def test_default_token_uses_base_sepolia_when_selected(monkeypatch):
@@ -233,3 +262,234 @@ def test_start_script_starts_funded_game(project, accounts, chain, monkeypatch):
     assert result is None
     assert game.started()
     assert game.start_time() > 0
+
+
+def test_simulation_nonce_tracker_uses_pending_nonce_per_sender(
+    accounts, monkeypatch
+):
+    calls = []
+    pending = {
+        accounts[0].address: 7,
+        accounts[1].address: 11,
+    }
+    monkeypatch.setattr(
+        simulate_king_of_the_hill_gameplay,
+        "pending_nonce",
+        lambda address: calls.append(address) or pending[address],
+    )
+    tracker = simulate_king_of_the_hill_gameplay.NonceTracker()
+
+    assert tracker.next_nonce(accounts[0]) == 7
+    assert tracker.next_nonce(accounts[0]) == 8
+    assert tracker.next_nonce(accounts[1]) == 11
+    assert tracker.next_nonce(accounts[0]) == 9
+    assert calls == [accounts[0].address, accounts[1].address]
+
+
+def test_simulation_script_runs_three_player_scenario(
+    project, accounts, capsys, monkeypatch, tmp_path
+):
+    clear_simulation_env(monkeypatch)
+    creator = accounts[0]
+    player1 = accounts[1]
+    player2 = accounts[2]
+    player3 = accounts[3]
+    refund_to = accounts[4]
+    token = project.MockERC20.deploy("USD Coin", "USDC", 6, sender=creator)
+    token.mint(creator, AMOUNT, sender=creator)
+    aliases = {
+        "creator": creator,
+        "player1": player1,
+        "player2": player2,
+        "player3": player3,
+    }
+    monkeypatch.setattr(
+        simulate_king_of_the_hill_gameplay.accounts,
+        "load",
+        lambda alias: aliases[alias],
+    )
+    log_file = tmp_path / "simulation.log"
+    log_file.write_text("old noisy log\n")
+
+    result = simulate_king_of_the_hill_gameplay.cli.main(
+        args=[
+            "--account",
+            "creator",
+            "--player1",
+            "player1",
+            "--player2",
+            "player2",
+            "--player3",
+            "player3",
+            "--token",
+            token.address,
+            "--refund-to",
+            refund_to.address,
+            "--prompt",
+            PROMPT,
+            "--max-amount",
+            str(AMOUNT),
+            "--floor-amount",
+            str(FLOOR),
+            "--deadline",
+            "4102444800",
+            "--max-shots",
+            str(MAX_SHOTS),
+            "--curve-exponent",
+            "2",
+            "--answer-hash",
+            ANSWER_HASH_HEX,
+            "--correct-answer",
+            "blue candle",
+            "--wrong-answer",
+            "red candle",
+            "--scenario",
+            "p1:Y,p2:N,p3:Y",
+            "--log-file",
+            str(log_file),
+            "--network",
+            "ethereum:local:test",
+        ],
+        standalone_mode=False,
+    )
+
+    game = project.KingOfTheHillGiveaway.at(
+        simulated_address_from_output(capsys.readouterr().out)
+    )
+    log_text = log_file.read_text()
+
+    assert result is None
+    assert game.started()
+    assert game.king() == player3.address
+    assert game.shots_used(player1) == 1
+    assert game.shots_used(player2) == 1
+    assert game.shots_used(player3) == 1
+    assert token.balanceOf(game.address) == AMOUNT
+    assert "old noisy log" not in log_text
+    assert "event: scenario_started | scenario: 1" in log_text
+    assert (
+        "event: before_shot | scenario: 1 | shot: 1 | player: p1 | correct: True"
+        in log_text
+    )
+    assert (
+        "event: after_shot | scenario: 1 | shot: 3 | player: p3 | correct: True"
+        in log_text
+    )
+    assert '"state": {' in log_text
+
+
+def test_simulation_script_can_use_raw_private_keys_without_loading_aliases(
+    project, accounts, capsys, monkeypatch, tmp_path
+):
+    clear_simulation_env(monkeypatch)
+    creator = accounts[0]
+    player1 = accounts[1]
+    player2 = accounts[2]
+    player3 = accounts[3]
+    refund_to = accounts[4]
+    token = project.MockERC20.deploy("USD Coin", "USDC", 6, sender=creator)
+    token.mint(creator, AMOUNT, sender=creator)
+    monkeypatch.setattr(
+        simulate_king_of_the_hill_gameplay.accounts,
+        "load",
+        lambda _alias: pytest.fail("accounts.load should not be called"),
+    )
+    log_file = tmp_path / "simulation.jsonl"
+
+    result = simulate_king_of_the_hill_gameplay.cli.main(
+        args=[
+            "--account",
+            "creator",
+            "--account-private-key",
+            str(creator.private_key),
+            "--player1",
+            "player1",
+            "--player1-private-key",
+            str(player1.private_key),
+            "--player2",
+            "player2",
+            "--player2-private-key",
+            str(player2.private_key),
+            "--player3",
+            "player3",
+            "--player3-private-key",
+            str(player3.private_key),
+            "--token",
+            token.address,
+            "--refund-to",
+            refund_to.address,
+            "--prompt",
+            PROMPT,
+            "--max-amount",
+            str(AMOUNT),
+            "--floor-amount",
+            str(FLOOR),
+            "--deadline",
+            "4102444800",
+            "--max-shots",
+            str(MAX_SHOTS),
+            "--curve-exponent",
+            "2",
+            "--answer-hash",
+            ANSWER_HASH_HEX,
+            "--correct-answer",
+            "blue candle",
+            "--wrong-answer",
+            "red candle",
+            "--scenario",
+            "p1:Y,p2:N,p3:Y",
+            "--log-file",
+            str(log_file),
+            "--log-format",
+            "jsonl",
+            "--network",
+            "ethereum:local:test",
+        ],
+        standalone_mode=False,
+    )
+
+    game = project.KingOfTheHillGiveaway.at(
+        simulated_address_from_output(capsys.readouterr().out)
+    )
+
+    assert result is None
+    assert game.started()
+    assert game.king() == player3.address
+    assert len(log_file.read_text().splitlines()) == 7
+
+
+def test_simulation_script_ignores_deploy_deadline_env(monkeypatch, tmp_path):
+    clear_simulation_env(monkeypatch)
+    monkeypatch.setenv("KINGOFTHEHILL_DEADLINE", "1")
+    monkeypatch.setattr(simulate_king_of_the_hill_gameplay.time, "time", lambda: 100)
+
+    result = simulate_king_of_the_hill_gameplay.cli.main(
+        args=[
+            "--token",
+            "0x000000000000000000000000000000000000dEaD",
+            "--refund-to",
+            "0x000000000000000000000000000000000000bEEF",
+            "--prompt",
+            PROMPT,
+            "--max-amount",
+            str(AMOUNT),
+            "--floor-amount",
+            str(FLOOR),
+            "--max-shots",
+            str(MAX_SHOTS),
+            "--curve-exponent",
+            "2",
+            "--answer-hash",
+            ANSWER_HASH_HEX,
+            "--correct-answer",
+            "blue candle",
+            "--log-file",
+            str(tmp_path / "simulation.jsonl"),
+            "--dry-run",
+            "--network",
+            "ethereum:local:test",
+        ],
+        standalone_mode=False,
+    )
+
+    assert result is None
