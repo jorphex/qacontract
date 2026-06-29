@@ -540,8 +540,8 @@ async function refresh() {
   if (state.ended && state.paidAmountRaw && state.paidAmountRaw > 0n) {
     currentPrizeHuman = paidHuman;
   } else if (state.currentHolder && state.kingSince && state.started && !state.ended) {
-    const cap = state.originalDeadline > state.kingSince ? state.originalDeadline : state.deadline;
-    const elapsed = Math.min(now, cap) - state.kingSince;
+    const effectiveUntil = Math.min(now, state.originalDeadline || state.deadline);
+    const elapsed = Math.max(0, effectiveUntil - state.kingSince);
     currentPrizeHuman = curveValue(elapsed, floorHuman, maxAmountHuman, state.gameDuration, state.curveExponent);
   }
   $('#prize').textContent = currentPrizeHuman > 0
