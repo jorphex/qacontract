@@ -13,7 +13,7 @@ let useMock = false;
 let state = {};
 let refreshTimer = null;
 let lastShotSequence = 0;
-const REFRESH_INTERVAL = 1000;
+const REFRESH_INTERVAL = 2000;
 
 // ── Helpers ────────────────────────────────────────────────
 const $ = (sel) => document.querySelector(sel);
@@ -759,7 +759,10 @@ async function init() {
     const { config: cfg, abi } = await loadConfig();
     config = cfg;
     const rpcUrl = new URL(config.rpcProxyUrl, window.location.href).toString();
-    provider = new ethers.JsonRpcProvider(rpcUrl);
+    provider = new ethers.JsonRpcProvider(rpcUrl, undefined, {
+      batchMaxCount: 50,
+      batchStallTime: 10,
+    });
     contract = new ethers.Contract(config.contractAddress, abi, provider);
 
     // Verify connection

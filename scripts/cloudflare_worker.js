@@ -29,7 +29,7 @@ const READ_ONLY_METHODS = new Set([
   'eth_estimateGas',
 ]);
 
-const CACHE_SECONDS = 2;
+const CACHE_SECONDS = 3;
 
 export default {
   async fetch(request, env, ctx) {
@@ -80,14 +80,42 @@ export default {
       }
 
       const cache = caches.default;
+      let bodyForKey;
+      try {
+        const parsed = JSON.parse(bodyText);
+        const normalize = (r) => ({ ...r, id: 0 });
+        bodyForKey = JSON.stringify(
+          Array.isArray(parsed) ? parsed.map(normalize) : normalize(parsed)
+        );
+      } catch {
+        bodyForKey = bodyText;
+      }
       const cacheKey = new Request(
-        `${url.origin}${path}?k=${await sha256(bodyText)}`,
+        `${url.origin}${path}?k=${await sha256(bodyForKey)}`,
         { method: 'GET' }
       );
 
       const cached = await cache.match(cacheKey);
       if (cached) {
-        return cached;
+        const cachedText = await cached.text();
+        try {
+          const reqParsed = JSON.parse(bodyText);
+          const resParsed = JSON.parse(cachedText);
+          const rewriteId = (res, req) => ({ ...res, id: req.id });
+          const out = Array.isArray(resParsed)
+            ? resParsed.map((r, i) => rewriteId(r, reqParsed[i]))
+            : rewriteId(resParsed, reqParsed);
+          return jsonResponse(out, 200, {
+            'Cache-Control': `public, max-age=${CACHE_SECONDS}`,
+            'Access-Control-Allow-Origin': '*',
+          });
+        } catch {
+          return new Response(cachedText, {
+            status: cached.status,
+            statusText: cached.statusText,
+            headers: cached.headers,
+          });
+        }
       }
 
       const upstream = await fetch(env.ALCHEMY_RPC_URL, {
