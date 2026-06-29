@@ -32,7 +32,11 @@ def echo_game_state(game):
     click.echo(f"prompt={game.prompt()}")
     click.echo(f"max_amount={game.max_amount()}")
     click.echo(f"floor_amount={game.floor_amount()}")
+    click.echo(f"original_deadline={game.original_deadline()}")
     click.echo(f"deadline={game.deadline()}")
+    click.echo(f"max_deadline={game.max_deadline()}")
+    click.echo(f"extension_window={game.extension_window()}")
+    click.echo(f"max_overtime={game.max_overtime()}")
     click.echo(f"max_shots={game.max_shots()}")
     click.echo(f"curve_exponent={game.curve_exponent()}")
     click.echo(f"funded={game.funded()}")
@@ -51,13 +55,13 @@ def echo_game_state(game):
     "--account",
     envvar="KINGOFTHEHILL_ACCOUNT",
     required=True,
-    help="Ape account alias that created the KingOfTheHillGiveaway.",
+    help="Ape account alias that created the KingOfTheHillGiveawayV5.",
 )
 @click.option(
     "--king-of-the-hill",
     envvar="KINGOFTHEHILL_ADDRESS",
     required=True,
-    help="Deployed KingOfTheHillGiveaway address.",
+    help="Deployed KingOfTheHillGiveawayV5 address.",
 )
 @click.option(
     "--dry-run",
@@ -67,7 +71,7 @@ def echo_game_state(game):
 def cli(account: str, king_of_the_hill: str, dry_run: bool):
     king_of_the_hill = parse_address(king_of_the_hill, "king-of-the-hill")
 
-    click.echo("KingOfTheHillGiveaway start")
+    click.echo("KingOfTheHillGiveawayV5 start")
     click.echo(f"account={account}")
     click.echo(f"king_of_the_hill={king_of_the_hill}")
 
@@ -75,7 +79,7 @@ def cli(account: str, king_of_the_hill: str, dry_run: bool):
         return
 
     creator = accounts.load(account)
-    game = project.KingOfTheHillGiveaway.at(king_of_the_hill)
+    game = project.KingOfTheHillGiveawayV5.at(king_of_the_hill)
     contract_creator = game.creator()
     funded = game.funded()
     started = game.started()
@@ -86,21 +90,21 @@ def cli(account: str, king_of_the_hill: str, dry_run: bool):
 
     if contract_creator != creator.address:
         raise click.ClickException(
-            "loaded account is not the KingOfTheHillGiveaway creator"
+            "loaded account is not the KingOfTheHillGiveawayV5 creator"
         )
 
     if not funded:
-        raise click.ClickException("KingOfTheHillGiveaway is not funded")
+        raise click.ClickException("KingOfTheHillGiveawayV5 is not funded")
 
     if started:
-        raise click.ClickException("KingOfTheHillGiveaway is already started")
+        raise click.ClickException("KingOfTheHillGiveawayV5 is already started")
 
     if ended:
-        raise click.ClickException("KingOfTheHillGiveaway is already ended")
+        raise click.ClickException("KingOfTheHillGiveawayV5 is already ended")
 
     now = int(time.time())
     if now >= deadline:
-        raise click.ClickException(f"KingOfTheHillGiveaway is expired; now is {now}")
+        raise click.ClickException(f"KingOfTheHillGiveawayV5 is expired; now is {now}")
 
     start_receipt = game.start_game(sender=creator)
     click.echo(f"start_game_tx={tx_hash(start_receipt)}")

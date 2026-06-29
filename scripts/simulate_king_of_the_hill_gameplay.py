@@ -1,6 +1,7 @@
 import json
 import os
 import time
+from dataclasses import dataclass
 from pathlib import Path
 
 import click
@@ -22,12 +23,23 @@ BASE_USDC_BY_NETWORK = {
 }
 
 DEFAULT_SCENARIOS = (
-    "p1:Y,p2:Y,p3:N",
-    "p1:Y,p2:N,p3:Y",
-    "p1:N,p2:N,p3:N,p1:Y,p2:N",
-    "p1:N,p2:Y,p3:N,p1:Y,p2:Y,p3:N",
+    (
+        "p1:N,p1:Y,"
+        "p2:Y,p2:N,"
+        "p3:N,p3:N,"
+        "p1:N@late,p2:N@overtime,p3:Y@overtime"
+    ),
 )
 ZERO_ADDRESS = "0x0000000000000000000000000000000000000000"
+TIMING_LATE = "late"
+TIMING_OVERTIME = "overtime"
+
+
+@dataclass(frozen=True)
+class ScenarioStep:
+    player_name: str
+    is_correct: bool
+    timing: str | None = None
 
 
 def default_token(provider) -> str:
@@ -76,6 +88,8 @@ def validate_game_values(
     max_amount: int,
     floor_amount: int,
     deadline: int,
+    extension_window: int,
+    max_overtime: int,
     max_shots: int,
     curve_exponent: int,
 ):
@@ -105,6 +119,12 @@ def validate_game_values(
         raise click.BadParameter(
             f"deadline must be in the future; now is {now}"
         )
+
+    if extension_window <= 0:
+        raise click.BadParameter("extension-window must be greater than zero")
+
+    if max_overtime < extension_window:
+        raise click.BadParameter("max-overtime must be at least extension-window")
 
 
 class NonceTracker:
@@ -159,7 +179,7 @@ def load_sender(alias: str, private_key: str | None, passphrase: str | None):
     return account
 
 
-def parse_scenario(value: str) -> list[tuple[str, bool]]:
+def parse_scenario(value: str) -> list[ScenarioStep]:
     steps = []
     for raw_step in value.split(","):
         raw_step = raw_step.strip()
@@ -169,17 +189,32 @@ def parse_scenario(value: str) -> list[tuple[str, bool]]:
         parts = raw_step.split(":", maxsplit=1)
         if len(parts) != 2:
             raise click.BadParameter(
-                "scenario steps must look like p1:Y,p2:N,p3:Y"
+                "scenario steps must look like p1:Y,p2:N,p3:Y or p1:Y@late"
             )
 
         player_name = parts[0].strip().lower()
-        answer_flag = parts[1].strip().upper()
+        answer_part = parts[1].strip()
+        answer_flag = answer_part
+        timing = None
+        if "@" in answer_part:
+            answer_flag, timing = answer_part.split("@", maxsplit=1)
+            timing = timing.strip().lower()
+
+        answer_flag = answer_flag.strip().upper()
         if player_name not in {"p1", "p2", "p3"}:
             raise click.BadParameter("scenario player must be p1, p2, or p3")
         if answer_flag not in {"Y", "N"}:
             raise click.BadParameter("scenario answer flag must be Y or N")
+        if timing not in {None, TIMING_LATE, TIMING_OVERTIME}:
+            raise click.BadParameter("scenario timing must be late or overtime")
 
-        steps.append((player_name, answer_flag == "Y"))
+        steps.append(
+            ScenarioStep(
+                player_name=player_name,
+                is_correct=answer_flag == "Y",
+                timing=timing,
+            )
+        )
 
     if not steps:
         raise click.BadParameter("scenario must include at least one shot")
@@ -238,7 +273,11 @@ def snapshot(game, token_contract, players) -> dict:
         "prompt": game.prompt(),
         "max_amount": game.max_amount(),
         "floor_amount": game.floor_amount(),
+        "original_deadline": game.original_deadline(),
         "deadline": game.deadline(),
+        "max_deadline": game.max_deadline(),
+        "extension_window": game.extension_window(),
+        "max_overtime": game.max_overtime(),
         "max_shots": game.max_shots(),
         "curve_exponent": game.curve_exponent(),
         "answer_hash": hex_value(game.answer_hash()),
@@ -266,7 +305,7 @@ def snapshot(game, token_contract, players) -> dict:
     }
 
 
-def deploy_fund_start(
+def deploy_and_fund(
     nonce_tracker: NonceTracker,
     deployer,
     token: str,
@@ -275,18 +314,22 @@ def deploy_fund_start(
     max_amount: int,
     floor_amount: int,
     deadline: int,
+    extension_window: int,
+    max_overtime: int,
     max_shots: int,
     curve_exponent: int,
     answer_hash: str,
-) -> tuple[object, object, str, str, str | None]:
+) -> tuple[object, object, str, str | None]:
     game = deployer.deploy(
-        project.KingOfTheHillGiveaway,
+        project.KingOfTheHillGiveawayV5,
         token,
         refund_to,
         prompt,
         max_amount,
         floor_amount,
         deadline,
+        extension_window,
+        max_overtime,
         max_shots,
         curve_exponent,
         answer_hash,
@@ -309,18 +352,52 @@ def deploy_fund_start(
         sender=deployer,
         nonce=nonce_tracker.next_nonce(deployer),
     )
+
+    return game, token_contract, tx_hash(fund_receipt), approve_tx
+
+
+def start_game(nonce_tracker: NonceTracker, deployer, game) -> str:
     start_receipt = game.start_game(
         sender=deployer,
         nonce=nonce_tracker.next_nonce(deployer),
     )
 
-    return game, token_contract, tx_hash(fund_receipt), tx_hash(start_receipt), approve_tx
+    return tx_hash(start_receipt)
 
 
-def wait_until_after(deadline: int):
-    sleep_for = deadline - int(time.time()) + 2
+def wait_until_expired(game):
+    while not game.is_expired():
+        deadline = game.deadline()
+        now = int(time.time())
+        if deadline > now:
+            sleep_for = min(deadline - now + 2, 30)
+        else:
+            sleep_for = 5
+
+        click.echo(f"waiting_for_expiry=deadline:{deadline},sleep:{sleep_for}")
+        time.sleep(sleep_for)
+
+
+def wait_until_at_or_after(timestamp: int):
+    sleep_for = timestamp - int(time.time())
     if sleep_for > 0:
         time.sleep(sleep_for)
+
+
+def timing_target(game, timing: str) -> int:
+    if timing == TIMING_LATE:
+        offset = max(1, game.extension_window() // 2)
+        return game.deadline() - offset
+
+    if timing == TIMING_OVERTIME:
+        target = game.original_deadline() + 1
+        if game.deadline() <= target:
+            raise click.ClickException(
+                "overtime timing requires an earlier late shot to extend deadline"
+            )
+        return target
+
+    raise click.ClickException(f"unknown scenario timing: {timing}")
 
 
 @click.command(cls=ConnectedProviderCommand)
@@ -448,9 +525,25 @@ def wait_until_after(deadline: int):
     help="Scenario duration when --deadline is omitted.",
 )
 @click.option(
+    "--extension-window",
+    envvar="KINGOFTHEHILL_EXTENSION_WINDOW",
+    default=60,
+    show_default=True,
+    type=int,
+    help="Minimum response window after late shots, in seconds.",
+)
+@click.option(
+    "--max-overtime",
+    envvar="KINGOFTHEHILL_MAX_OVERTIME",
+    default=300,
+    show_default=True,
+    type=int,
+    help="Maximum total deadline extension after the original deadline.",
+)
+@click.option(
     "--max-shots",
     envvar="KINGOFTHEHILL_MAX_SHOTS",
-    default=5,
+    default=3,
     show_default=True,
     type=int,
     help="Maximum shots each address can take.",
@@ -487,7 +580,10 @@ def wait_until_after(deadline: int):
     "--scenario",
     "scenarios",
     multiple=True,
-    help="Shot sequence like p1:Y,p2:N,p3:Y. Repeat for multiple fresh games.",
+    help=(
+        "Shot sequence like p1:Y,p2:N,p3:Y. Add @late or @overtime for timed "
+        "steps, e.g. p1:Y@late,p2:Y@overtime. Repeat for multiple fresh games."
+    ),
 )
 @click.option(
     "--sleep-between-shots",
@@ -508,6 +604,12 @@ def wait_until_after(deadline: int):
     default=False,
     show_default=True,
     help="After finalize, claw back leftovers and log final state.",
+)
+@click.option(
+    "--yes-start",
+    envvar="KINGOFTHEHILL_SIM_YES_START",
+    is_flag=True,
+    help="Start each freshly funded game without prompting.",
 )
 @click.option(
     "--log-file",
@@ -556,6 +658,8 @@ def cli(
     floor_amount: int,
     deadline: int | None,
     game_seconds: int,
+    extension_window: int,
+    max_overtime: int,
     max_shots: int,
     curve_exponent: int,
     answer_hash: str,
@@ -565,6 +669,7 @@ def cli(
     sleep_between_shots: int,
     finalize: bool,
     clawback: bool,
+    yes_start: bool,
     log_file: Path,
     log_format: str,
     append_log: bool,
@@ -582,6 +687,8 @@ def cli(
         max_amount,
         floor_amount,
         first_deadline,
+        extension_window,
+        max_overtime,
         max_shots,
         curve_exponent,
     )
@@ -592,13 +699,16 @@ def cli(
     if clawback and not finalize:
         raise click.BadParameter("clawback requires finalize")
 
-    click.echo("KingOfTheHillGiveaway live gameplay simulation")
+    click.echo("KingOfTheHillGiveawayV5 live gameplay simulation")
     click.echo(f"account={account}")
     click.echo(f"players={player1},{player2},{player3}")
     click.echo(f"account_private_key={'set' if account_private_key else 'unset'}")
     click.echo(f"player_private_keys_set={sum(bool(k) for k in [player1_private_key, player2_private_key, player3_private_key])}/3")
     click.echo(f"token={token}")
     click.echo(f"refund_to={refund_to}")
+    click.echo(f"extension_window={extension_window}")
+    click.echo(f"max_overtime={max_overtime}")
+    click.echo(f"yes_start={yes_start}")
     click.echo(f"log_file={log_file}")
     click.echo(f"log_format={log_format}")
     click.echo(f"append_log={append_log}")
@@ -622,7 +732,7 @@ def cli(
 
     for scenario_index, scenario in enumerate(parsed_scenarios, start=1):
         scenario_deadline = deadline or int(time.time()) + game_seconds
-        game, token_contract, fund_tx, start_tx, approve_tx = deploy_fund_start(
+        game, token_contract, fund_tx, approve_tx = deploy_and_fund(
             nonce_tracker,
             deployer,
             token,
@@ -631,6 +741,8 @@ def cli(
             max_amount,
             floor_amount,
             scenario_deadline,
+            extension_window,
+            max_overtime,
             max_shots,
             curve_exponent,
             answer_hash,
@@ -639,17 +751,72 @@ def cli(
         write_log(
             log_file,
             log_format,
-            "scenario_started",
+            "scenario_deployed_funded",
             scenario_index=scenario_index,
             scenario=raw_scenarios[scenario_index - 1],
             game=game.address,
             approve_tx=approve_tx,
             fund_tx=fund_tx,
+            state=snapshot(game, token_contract, players),
+        )
+
+        should_start = yes_start or click.confirm(
+            f"Start scenario {scenario_index} now?",
+            default=True,
+        )
+        if not should_start:
+            click.echo(f"scenario_{scenario_index}_start=skipped")
+            write_log(
+                log_file,
+                log_format,
+                "scenario_start_skipped",
+                scenario_index=scenario_index,
+                scenario=raw_scenarios[scenario_index - 1],
+                game=game.address,
+                state=snapshot(game, token_contract, players),
+            )
+            continue
+
+        start_tx = start_game(nonce_tracker, deployer, game)
+        click.echo(f"start_game=scenario:{scenario_index},tx:{start_tx}")
+        write_log(
+            log_file,
+            log_format,
+            "scenario_started",
+            scenario_index=scenario_index,
+            scenario=raw_scenarios[scenario_index - 1],
+            game=game.address,
             start_tx=start_tx,
             state=snapshot(game, token_contract, players),
         )
 
-        for shot_index, (player_name, is_correct) in enumerate(scenario, start=1):
+        for shot_index, step in enumerate(scenario, start=1):
+            if step.timing is not None:
+                target = timing_target(game, step.timing)
+                write_log(
+                    log_file,
+                    log_format,
+                    "before_timing_wait",
+                    scenario_index=scenario_index,
+                    shot_index=shot_index,
+                    timing=step.timing,
+                    timing_target=target,
+                    state=snapshot(game, token_contract, players),
+                )
+                wait_until_at_or_after(target)
+                write_log(
+                    log_file,
+                    log_format,
+                    "after_timing_wait",
+                    scenario_index=scenario_index,
+                    shot_index=shot_index,
+                    timing=step.timing,
+                    timing_target=target,
+                    state=snapshot(game, token_contract, players),
+                )
+
+            player_name = step.player_name
+            is_correct = step.is_correct
             answer = correct_answer if is_correct else wrong_answer
             player = players[player_name]
             write_log(
@@ -661,6 +828,7 @@ def cli(
                 player=player_name,
                 player_address=player.address,
                 is_correct=is_correct,
+                timing=step.timing,
                 state=snapshot(game, token_contract, players),
             )
             receipt = game.shoot(
@@ -671,7 +839,8 @@ def cli(
             click.echo(
                 "shot="
                 f"scenario:{scenario_index},index:{shot_index},"
-                f"player:{player_name},correct:{is_correct},tx:{tx_hash(receipt)}"
+                f"player:{player_name},correct:{is_correct},"
+                f"timing:{step.timing or 'now'},tx:{tx_hash(receipt)}"
             )
             write_log(
                 log_file,
@@ -682,6 +851,7 @@ def cli(
                 player=player_name,
                 player_address=player.address,
                 is_correct=is_correct,
+                timing=step.timing,
                 tx=tx_hash(receipt),
                 state=snapshot(game, token_contract, players),
             )
@@ -696,7 +866,7 @@ def cli(
                 scenario_index=scenario_index,
                 state=snapshot(game, token_contract, players),
             )
-            wait_until_after(game.deadline())
+            wait_until_expired(game)
             finalize_receipt = game.finalize(
                 sender=deployer,
                 nonce=nonce_tracker.next_nonce(deployer),

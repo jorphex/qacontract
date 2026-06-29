@@ -65,6 +65,8 @@ def validate_game_values(
     max_amount: int,
     floor_amount: int,
     deadline: int,
+    extension_window: int,
+    max_overtime: int,
     max_shots: int,
     curve_exponent: int,
 ):
@@ -95,6 +97,12 @@ def validate_game_values(
             f"deadline must be in the future; now is {now}"
         )
 
+    if extension_window <= 0:
+        raise click.BadParameter("extension-window must be greater than zero")
+
+    if max_overtime < extension_window:
+        raise click.BadParameter("max-overtime must be at least extension-window")
+
 
 def echo_contract_state(contract):
     click.echo(f"deployed_creator={contract.creator()}")
@@ -103,7 +111,11 @@ def echo_contract_state(contract):
     click.echo(f"deployed_prompt={contract.prompt()}")
     click.echo(f"deployed_max_amount={contract.max_amount()}")
     click.echo(f"deployed_floor_amount={contract.floor_amount()}")
+    click.echo(f"deployed_original_deadline={contract.original_deadline()}")
     click.echo(f"deployed_deadline={contract.deadline()}")
+    click.echo(f"deployed_max_deadline={contract.max_deadline()}")
+    click.echo(f"deployed_extension_window={contract.extension_window()}")
+    click.echo(f"deployed_max_overtime={contract.max_overtime()}")
     click.echo(f"deployed_max_shots={contract.max_shots()}")
     click.echo(f"deployed_curve_exponent={contract.curve_exponent()}")
     click.echo(f"deployed_answer_hash={contract.answer_hash()}")
@@ -165,9 +177,25 @@ def echo_contract_state(contract):
     help="Unix timestamp when shooting expires.",
 )
 @click.option(
+    "--extension-window",
+    envvar="KINGOFTHEHILL_EXTENSION_WINDOW",
+    default=60,
+    show_default=True,
+    type=int,
+    help="Minimum response window after late shots, in seconds.",
+)
+@click.option(
+    "--max-overtime",
+    envvar="KINGOFTHEHILL_MAX_OVERTIME",
+    default=300,
+    show_default=True,
+    type=int,
+    help="Maximum total deadline extension after the original deadline.",
+)
+@click.option(
     "--max-shots",
     envvar="KINGOFTHEHILL_MAX_SHOTS",
-    default=5,
+    default=3,
     show_default=True,
     type=int,
     help="Maximum shots each address can take.",
@@ -206,6 +234,8 @@ def cli(
     max_amount: int,
     floor_amount: int,
     deadline: int,
+    extension_window: int,
+    max_overtime: int,
     max_shots: int,
     curve_exponent: int,
     answer_hash: str,
@@ -220,11 +250,13 @@ def cli(
         max_amount,
         floor_amount,
         deadline,
+        extension_window,
+        max_overtime,
         max_shots,
         curve_exponent,
     )
 
-    click.echo("KingOfTheHillGiveaway deployment and funding")
+    click.echo("KingOfTheHillGiveawayV5 deployment and funding")
     click.echo(f"account={account}")
     click.echo(f"token={token}")
     click.echo(f"refund_to={refund_to}")
@@ -232,6 +264,8 @@ def cli(
     click.echo(f"max_amount={max_amount}")
     click.echo(f"floor_amount={floor_amount}")
     click.echo(f"deadline={deadline}")
+    click.echo(f"extension_window={extension_window}")
+    click.echo(f"max_overtime={max_overtime}")
     click.echo(f"max_shots={max_shots}")
     click.echo(f"curve_exponent={curve_exponent}")
     click.echo(f"answer_hash={answer_hash}")
@@ -242,13 +276,15 @@ def cli(
 
     deployer = accounts.load(account)
     contract = deployer.deploy(
-        project.KingOfTheHillGiveaway,
+        project.KingOfTheHillGiveawayV5,
         token,
         refund_to,
         prompt,
         max_amount,
         floor_amount,
         deadline,
+        extension_window,
+        max_overtime,
         max_shots,
         curve_exponent,
         answer_hash,
