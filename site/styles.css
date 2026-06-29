@@ -423,6 +423,32 @@ body {
   display: none;
 }
 
+.winner-prize {
+  display: none;
+  flex-direction: column;
+  gap: 0.35rem;
+  margin-top: 0.75rem;
+}
+
+.king-section.ended .winner-prize {
+  display: flex;
+}
+
+.winner-prize-label {
+  font-size: 0.72rem;
+  font-weight: 500;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--text-secondary);
+}
+
+.winner-prize-value {
+  font-size: 1.25rem;
+  font-weight: 600;
+  color: var(--accent);
+  font-family: 'JetBrains Mono', monospace;
+}
+
 /* ── Idle State ─────────────────────────────────── */
 body.idle .site-notice,
 body.idle .hero-viz,

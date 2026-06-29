@@ -556,10 +556,16 @@ async function refresh() {
     const elapsed = Math.max(0, effectiveUntil - state.kingSince);
     currentPrizeHuman = curveValue(elapsed, floorHuman, maxAmountHuman, state.gameDuration, state.curveExponent);
   }
-  $('#prize').textContent = currentPrizeHuman > 0
+  const prizeText = currentPrizeHuman > 0
     ? `${currentPrizeHuman.toLocaleString(undefined, { maximumFractionDigits: 4 })} ${symbol}`.trim()
     : '-';
+  $('#prize').textContent = prizeText;
   $('#prize-label').textContent = state.ended ? 'Winner Prize' : 'Current Reign Prize';
+
+  const winnerPrizeValue = $('#winner-prize-value');
+  if (winnerPrizeValue) {
+    winnerPrizeValue.textContent = state.ended && state.paidAmountRaw && state.paidAmountRaw > 0n ? prizeText : '-';
+  }
 
   // King / winner card
   const displayHolder = state.ended && state.winner ? state.winner : state.currentHolder;
