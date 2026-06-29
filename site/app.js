@@ -41,6 +41,7 @@ function buildMockState() {
     maxAmount: 200,
     floorAmount: 5,
     curveExponent: 2,
+    maxShots: 5,
     prizePool: 200n * 10n ** 18n,
     funded: true,
     started: true,
@@ -135,7 +136,8 @@ function currentPrizeValue() {
   if (!state.currentHolder || state.currentHolder === EMPTY_ADDRESS || !state.started || state.ended) {
     return 0;
   }
-  return curveValue(nowSeconds() - state.kingSince);
+  const now = Math.min(nowSeconds(), state.deadline);
+  return curveValue(now - state.kingSince);
 }
 
 // ── Stats ────────────────────────────────────────────────
@@ -166,6 +168,8 @@ function renderStats() {
   document.getElementById('pool').textContent = formatToken(state.prizePool);
   document.getElementById('timer').textContent = state.ended ? '—' : formatDuration(timeLeft);
   document.getElementById('prize').textContent = prizeDisplay;
+  document.getElementById('prize-label').textContent = state.ended ? 'Winner Prize' : 'Current Reign Prize';
+  document.getElementById('max-shots').textContent = state.maxShots ?? '—';
 
   const kingEl = document.getElementById('king');
   if (state.currentHolder && state.currentHolder !== EMPTY_ADDRESS) {
@@ -546,6 +550,7 @@ async function fetchContractState() {
     maxAmount,
     floorAmount,
     curveExponent,
+    maxShots,
     king,
     kingSince,
     remainingAmount,
@@ -561,6 +566,7 @@ async function fetchContractState() {
     contract.max_amount(),
     contract.floor_amount(),
     contract.curve_exponent(),
+    contract.max_shots(),
     contract.king(),
     contract.king_since(),
     contract.remaining_amount(),
@@ -578,6 +584,7 @@ async function fetchContractState() {
   state.maxAmount = Number(ethers.formatUnits(maxAmount, tokenDecimals));
   state.floorAmount = Number(ethers.formatUnits(floorAmount, tokenDecimals));
   state.curveExponent = Number(curveExponent);
+  state.maxShots = Number(maxShots);
   state.prizePool = remainingAmount;
   state.currentHolder = king.toLowerCase();
   state.kingSince = Number(kingSince);
@@ -601,11 +608,19 @@ function animate() {
   requestAnimationFrame(animate);
 }
 
+function reignsKey(reigns) {
+  return JSON.stringify((reigns || []).map((r) => [r.start, r.end, r.player]));
+}
+
 async function tick() {
   if (useMock) return;
   try {
+    const before = reignsKey(state.reigns);
     await fetchContractState();
-    stateDirty = true;
+    const after = reignsKey(state.reigns);
+    if (before !== after) {
+      stateDirty = true;
+    }
   } catch (err) {
     console.error('Failed to fetch contract state:', err);
   }
