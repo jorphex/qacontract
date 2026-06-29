@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>King of the Hill v5</title>
+  <title>King of the Hill v5.1</title>
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
@@ -17,7 +17,7 @@
   <header class="site-header">
     <div class="brand">
       <span class="crown">♔</span>
-      <h1>King of the Hill <span class="version">v5</span></h1>
+      <h1>King of the Hill <span class="version">v5.1</span></h1>
     </div>
     <nav class="social-links" aria-label="Social links">
       <a href="https://github.com/jorphex/qacontract" target="_blank" rel="noopener" aria-label="GitHub">
@@ -37,12 +37,13 @@
     <section class="hero">
       <div class="hero-top">
         <div class="hero-text">
-          <h2>Last Correct Reign Wins</h2>
+          <h2>Highest Banked Correct Prize Wins</h2>
           <p>
             Capture the hill with <code>shoot(answer)</code>. Only time held with the <strong>correct answer</strong>
-            banks toward the real prize, and that banked time stays hidden on-chain. Late shots can extend the
-            deadline into overtime, but the visible prize stops growing at the original deadline.
-            The last correct reign wins.
+            banks toward the real prize, and that banked time stays hidden on-chain. The visible prize curve resets on
+            every capture and stops growing at the original deadline. Overtime is a short response window — late shots
+            can still change the visible king, but they do not create new prize growth. The highest banked correct
+            prize wins.
           </p>
         </div>
 
@@ -168,13 +169,13 @@
       <div class="rule-card"><span class="rule-num">4</span><p>Recapturing with the correct answer resumes your hidden bank from where it left off.</p></div>
       <div class="rule-card"><span class="rule-num">4</span><p>Connect your wallet and call <code>shoot(answer)</code> with your answer.</p></div>
 
-      <div class="rule-card"><span class="rule-num">5</span><p>The last correct reign before the final deadline wins. Late shots can extend the deadline into overtime, but the visible prize stops growing at the original deadline.</p></div>
+      <div class="rule-card"><span class="rule-num">5</span><p>The highest banked correct prize wins. Overtime is a short response window — late shots can still change the visible king, but they do not create new prize growth.</p></div>
       <div class="rule-card"><span class="rule-num">5</span><p>Verify the result, your remaining shots, and all state directly on Basescan.</p></div>
     </section>
   </main>
 
   <footer class="site-footer">
-    <p>Read-only live view of the King of the Hill v5 game.</p>
+    <p>Read-only live view of the King of the Hill v5.1 game.</p>
   </footer>
 
   <script type="module" src="app.js"></script>

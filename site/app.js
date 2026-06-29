@@ -1,4 +1,4 @@
-// King of the Hill v5 — prototype viewer wired to the live contract.
+// King of the Hill v5.1 — prototype viewer wired to the live contract.
 
 const ERC20_ABI = [
   'function decimals() view returns (uint8)',
