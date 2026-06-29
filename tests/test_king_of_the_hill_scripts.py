@@ -19,6 +19,9 @@ MAX_OVERTIME = 300
 PROMPT = "What color is the candle?"
 ANSWER_HASH = keccak(text="blue candle")
 ANSWER_HASH_HEX = f"0x{ANSWER_HASH.hex()}"
+SIDE_QUEST_HASH = keccak(text="hidden blue candle")
+SIDE_QUEST_HASH_HEX = f"0x{SIDE_QUEST_HASH.hex()}"
+ZERO_BYTES32 = "0x" + "0" * 64
 
 
 def provider(ecosystem_name: str, network_name: str):
@@ -35,7 +38,7 @@ def deploy_funded_game(project, accounts, chain):
     refund_to = accounts[2]
     token = project.MockERC20.deploy("USD Coin", "USDC", 6, sender=creator)
     token.mint(creator, AMOUNT, sender=creator)
-    game = project.KingOfTheHillGiveawayV51.deploy(
+    game = project.KingOfTheHillGiveawayV52.deploy(
         token.address,
         refund_to.address,
         PROMPT,
@@ -47,6 +50,8 @@ def deploy_funded_game(project, accounts, chain):
         MAX_SHOTS,
         2,
         ANSWER_HASH,
+        ZERO_BYTES32,
+        0,
         sender=creator,
     )
     token.approve(game.address, AMOUNT, sender=creator)
@@ -136,6 +141,58 @@ def test_validate_game_values_rejects_bad_curve_exponent(monkeypatch):
             max_overtime=MAX_OVERTIME,
             max_shots=MAX_SHOTS,
             curve_exponent=4,
+            answer_hash=ANSWER_HASH_HEX,
+            side_quest_hash=ZERO_BYTES32,
+            side_quest_boost_bps=0,
+        )
+
+
+def test_validate_game_values_rejects_bad_side_quest_settings(monkeypatch):
+    monkeypatch.setattr(deploy_and_fund_king_of_the_hill.time, "time", lambda: 100)
+
+    with pytest.raises(click.BadParameter, match="side-quest-boost-bps"):
+        deploy_and_fund_king_of_the_hill.validate_game_values(
+            prompt=PROMPT,
+            max_amount=100,
+            floor_amount=1,
+            deadline=200,
+            extension_window=EXTENSION_WINDOW,
+            max_overtime=MAX_OVERTIME,
+            max_shots=MAX_SHOTS,
+            curve_exponent=2,
+            answer_hash=ANSWER_HASH_HEX,
+            side_quest_hash=ZERO_BYTES32,
+            side_quest_boost_bps=10_001,
+        )
+
+    with pytest.raises(click.BadParameter, match="side-quest-hash is required"):
+        deploy_and_fund_king_of_the_hill.validate_game_values(
+            prompt=PROMPT,
+            max_amount=100,
+            floor_amount=1,
+            deadline=200,
+            extension_window=EXTENSION_WINDOW,
+            max_overtime=MAX_OVERTIME,
+            max_shots=MAX_SHOTS,
+            curve_exponent=2,
+            answer_hash=ANSWER_HASH_HEX,
+            side_quest_hash=ZERO_BYTES32,
+            side_quest_boost_bps=1,
+        )
+
+    with pytest.raises(click.BadParameter, match="must differ"):
+        deploy_and_fund_king_of_the_hill.validate_game_values(
+            prompt=PROMPT,
+            max_amount=100,
+            floor_amount=1,
+            deadline=200,
+            extension_window=EXTENSION_WINDOW,
+            max_overtime=MAX_OVERTIME,
+            max_shots=MAX_SHOTS,
+            curve_exponent=2,
+            answer_hash=ANSWER_HASH_HEX,
+            side_quest_hash=ANSWER_HASH_HEX,
+            side_quest_boost_bps=0,
         )
 
 
@@ -182,7 +239,7 @@ def test_deploy_and_fund_script_deploys_game(project, accounts, capsys, monkeypa
         standalone_mode=False,
     )
 
-    game = project.KingOfTheHillGiveawayV51.at(
+    game = project.KingOfTheHillGiveawayV52.at(
         deployed_address_from_output(capsys.readouterr().out)
     )
 
@@ -243,7 +300,7 @@ def test_deploy_and_fund_script_can_start_game(
         standalone_mode=False,
     )
 
-    game = project.KingOfTheHillGiveawayV51.at(
+    game = project.KingOfTheHillGiveawayV52.at(
         deployed_address_from_output(capsys.readouterr().out)
     )
 
@@ -328,7 +385,7 @@ def test_simulation_wait_until_expired_polls_contract_read(monkeypatch):
 
 def test_simulation_scenario_parses_timed_steps():
     steps = simulate_king_of_the_hill_gameplay.parse_scenario(
-        "p1:Y@late,p2:N@overtime,p3:Y"
+        "p1:Y@late,p2:N@overtime,p3:S"
     )
 
     assert steps[0].player_name == "p1"
@@ -339,6 +396,7 @@ def test_simulation_scenario_parses_timed_steps():
     assert steps[1].timing == "overtime"
     assert steps[2].player_name == "p3"
     assert steps[2].is_correct
+    assert steps[2].is_side_quest
     assert steps[2].timing is None
 
     with pytest.raises(click.BadParameter, match="timing must be late or overtime"):
@@ -364,6 +422,74 @@ def test_default_simulation_scenario_uses_all_player_shots():
     assert steps[8].player_name == "p3"
     assert steps[8].is_correct
     assert steps[8].timing == "overtime"
+
+
+def test_simulation_side_quest_scenario_requires_side_quest_inputs(
+    monkeypatch, tmp_path
+):
+    clear_simulation_env(monkeypatch)
+    monkeypatch.setattr(simulate_king_of_the_hill_gameplay.time, "time", lambda: 100)
+
+    base_args = [
+        "--token",
+        "0x000000000000000000000000000000000000dEaD",
+        "--refund-to",
+        "0x000000000000000000000000000000000000bEEF",
+        "--prompt",
+        PROMPT,
+        "--max-amount",
+        str(AMOUNT),
+        "--floor-amount",
+        str(FLOOR),
+        "--max-shots",
+        str(MAX_SHOTS),
+        "--extension-window",
+        str(EXTENSION_WINDOW),
+        "--max-overtime",
+        str(MAX_OVERTIME),
+        "--curve-exponent",
+        "2",
+        "--answer-hash",
+        ANSWER_HASH_HEX,
+        "--correct-answer",
+        "blue candle",
+        "--scenario",
+        "p1:S",
+        "--log-file",
+        str(tmp_path / "simulation.log"),
+        "--dry-run",
+        "--network",
+        "ethereum:local:test",
+    ]
+
+    with pytest.raises(click.BadParameter, match="side-quest-answer is required"):
+        simulate_king_of_the_hill_gameplay.cli.main(
+            args=base_args,
+            standalone_mode=False,
+        )
+
+    with pytest.raises(click.BadParameter, match="side-quest-hash is required"):
+        simulate_king_of_the_hill_gameplay.cli.main(
+            args=[
+                *base_args,
+                "--side-quest-answer",
+                "hidden blue candle",
+            ],
+            standalone_mode=False,
+        )
+
+    result = simulate_king_of_the_hill_gameplay.cli.main(
+        args=[
+            *base_args,
+            "--side-quest-hash",
+            SIDE_QUEST_HASH_HEX,
+            "--side-quest-answer",
+            "hidden blue candle",
+        ],
+        standalone_mode=False,
+    )
+
+    assert result is None
 
 
 def test_simulation_script_runs_three_player_scenario(
@@ -438,7 +564,7 @@ def test_simulation_script_runs_three_player_scenario(
         standalone_mode=False,
     )
 
-    game = project.KingOfTheHillGiveawayV51.at(
+    game = project.KingOfTheHillGiveawayV52.at(
         simulated_address_from_output(capsys.readouterr().out)
     )
     log_text = log_file.read_text()
@@ -547,7 +673,7 @@ def test_simulation_script_can_run_timed_overtime_scenario(
         standalone_mode=False,
     )
 
-    game = project.KingOfTheHillGiveawayV51.at(
+    game = project.KingOfTheHillGiveawayV52.at(
         simulated_address_from_output(capsys.readouterr().out)
     )
     log_text = log_file.read_text()
@@ -642,7 +768,7 @@ def test_simulation_script_can_pause_before_start(
     )
 
     output = capsys.readouterr().out
-    game = project.KingOfTheHillGiveawayV51.at(
+    game = project.KingOfTheHillGiveawayV52.at(
         simulated_address_from_output(output)
     )
     log_text = log_file.read_text()
@@ -731,7 +857,7 @@ def test_simulation_script_can_use_raw_private_keys_without_loading_aliases(
         standalone_mode=False,
     )
 
-    game = project.KingOfTheHillGiveawayV51.at(
+    game = project.KingOfTheHillGiveawayV52.at(
         simulated_address_from_output(capsys.readouterr().out)
     )
 

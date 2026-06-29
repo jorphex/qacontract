@@ -12,6 +12,7 @@ load_dotenv()
 
 BASE_USDC = "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913"
 BASE_SEPOLIA_USDC = "0x036CbD53842c5426634e7929541eC2318f3dCF7e"
+ZERO_BYTES32 = "0x" + "0" * 64
 
 BASE_USDC_BY_NETWORK = {
     ("base", "mainnet"): BASE_USDC,
@@ -69,6 +70,9 @@ def validate_game_values(
     max_overtime: int,
     max_shots: int,
     curve_exponent: int,
+    answer_hash: str,
+    side_quest_hash: str,
+    side_quest_boost_bps: int,
 ):
     if not prompt:
         raise click.BadParameter("prompt must not be empty")
@@ -102,6 +106,15 @@ def validate_game_values(
 
     if max_overtime < extension_window:
         raise click.BadParameter("max-overtime must be at least extension-window")
+
+    if side_quest_boost_bps < 0 or side_quest_boost_bps > 10_000:
+        raise click.BadParameter("side-quest-boost-bps must be between 0 and 10000")
+
+    if side_quest_boost_bps > 0 and side_quest_hash == ZERO_BYTES32:
+        raise click.BadParameter("side-quest-hash is required when boost is nonzero")
+
+    if side_quest_hash != ZERO_BYTES32 and side_quest_hash == answer_hash:
+        raise click.BadParameter("side-quest-hash must differ from answer-hash")
 
 
 def echo_contract_state(contract):
@@ -216,6 +229,22 @@ def echo_contract_state(contract):
     help="Hash from `ape run hash_answer`.",
 )
 @click.option(
+    "--side-quest-hash",
+    envvar="KINGOFTHEHILL_SIDE_QUEST_HASH",
+    default=ZERO_BYTES32,
+    show_default=True,
+    callback=lambda _ctx, _param, value: parse_answer_hash(value),
+    help="Optional hidden side quest answer hash.",
+)
+@click.option(
+    "--side-quest-boost-bps",
+    envvar="KINGOFTHEHILL_SIDE_QUEST_BOOST_BPS",
+    default=0,
+    show_default=True,
+    type=int,
+    help="One-time side quest hold-time boost in BPS of game duration.",
+)
+@click.option(
     "--start-now",
     is_flag=True,
     help="Start the game immediately after funding.",
@@ -239,6 +268,8 @@ def cli(
     max_shots: int,
     curve_exponent: int,
     answer_hash: str,
+    side_quest_hash: str,
+    side_quest_boost_bps: int,
     start_now: bool,
     dry_run: bool,
 ):
@@ -254,9 +285,12 @@ def cli(
         max_overtime,
         max_shots,
         curve_exponent,
+        answer_hash,
+        side_quest_hash,
+        side_quest_boost_bps,
     )
 
-    click.echo("KingOfTheHillGiveawayV51 deployment and funding")
+    click.echo("KingOfTheHillGiveawayV52 deployment and funding")
     click.echo(f"account={account}")
     click.echo(f"token={token}")
     click.echo(f"refund_to={refund_to}")
@@ -269,6 +303,8 @@ def cli(
     click.echo(f"max_shots={max_shots}")
     click.echo(f"curve_exponent={curve_exponent}")
     click.echo(f"answer_hash={answer_hash}")
+    click.echo(f"side_quest_hash={side_quest_hash}")
+    click.echo(f"side_quest_boost_bps={side_quest_boost_bps}")
     click.echo(f"start_now={start_now}")
 
     if dry_run:
@@ -276,7 +312,7 @@ def cli(
 
     deployer = accounts.load(account)
     contract = deployer.deploy(
-        project.KingOfTheHillGiveawayV51,
+        project.KingOfTheHillGiveawayV52,
         token,
         refund_to,
         prompt,
@@ -288,6 +324,8 @@ def cli(
         max_shots,
         curve_exponent,
         answer_hash,
+        side_quest_hash,
+        side_quest_boost_bps,
     )
     click.echo(f"king_of_the_hill={contract.address}")
 

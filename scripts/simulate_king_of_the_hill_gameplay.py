@@ -31,15 +31,27 @@ DEFAULT_SCENARIOS = (
     ),
 )
 ZERO_ADDRESS = "0x0000000000000000000000000000000000000000"
+ZERO_BYTES32 = "0x" + "0" * 64
 TIMING_LATE = "late"
 TIMING_OVERTIME = "overtime"
+ANSWER_CORRECT = "correct"
+ANSWER_WRONG = "wrong"
+ANSWER_SIDE_QUEST = "side_quest"
 
 
 @dataclass(frozen=True)
 class ScenarioStep:
     player_name: str
-    is_correct: bool
+    answer_kind: str
     timing: str | None = None
+
+    @property
+    def is_correct(self) -> bool:
+        return self.answer_kind in {ANSWER_CORRECT, ANSWER_SIDE_QUEST}
+
+    @property
+    def is_side_quest(self) -> bool:
+        return self.answer_kind == ANSWER_SIDE_QUEST
 
 
 def default_token(provider) -> str:
@@ -92,6 +104,9 @@ def validate_game_values(
     max_overtime: int,
     max_shots: int,
     curve_exponent: int,
+    answer_hash: str,
+    side_quest_hash: str,
+    side_quest_boost_bps: int,
 ):
     if not prompt:
         raise click.BadParameter("prompt must not be empty")
@@ -125,6 +140,15 @@ def validate_game_values(
 
     if max_overtime < extension_window:
         raise click.BadParameter("max-overtime must be at least extension-window")
+
+    if side_quest_boost_bps < 0 or side_quest_boost_bps > 10_000:
+        raise click.BadParameter("side-quest-boost-bps must be between 0 and 10000")
+
+    if side_quest_boost_bps > 0 and side_quest_hash == ZERO_BYTES32:
+        raise click.BadParameter("side-quest-hash is required when boost is nonzero")
+
+    if side_quest_hash != ZERO_BYTES32 and side_quest_hash == answer_hash:
+        raise click.BadParameter("side-quest-hash must differ from answer-hash")
 
 
 class NonceTracker:
@@ -189,7 +213,7 @@ def parse_scenario(value: str) -> list[ScenarioStep]:
         parts = raw_step.split(":", maxsplit=1)
         if len(parts) != 2:
             raise click.BadParameter(
-                "scenario steps must look like p1:Y,p2:N,p3:Y or p1:Y@late"
+                "scenario steps must look like p1:Y,p2:N,p3:S or p1:Y@late"
             )
 
         player_name = parts[0].strip().lower()
@@ -203,15 +227,19 @@ def parse_scenario(value: str) -> list[ScenarioStep]:
         answer_flag = answer_flag.strip().upper()
         if player_name not in {"p1", "p2", "p3"}:
             raise click.BadParameter("scenario player must be p1, p2, or p3")
-        if answer_flag not in {"Y", "N"}:
-            raise click.BadParameter("scenario answer flag must be Y or N")
+        if answer_flag not in {"Y", "N", "S"}:
+            raise click.BadParameter("scenario answer flag must be Y, N, or S")
         if timing not in {None, TIMING_LATE, TIMING_OVERTIME}:
             raise click.BadParameter("scenario timing must be late or overtime")
 
         steps.append(
             ScenarioStep(
                 player_name=player_name,
-                is_correct=answer_flag == "Y",
+                answer_kind={
+                    "Y": ANSWER_CORRECT,
+                    "N": ANSWER_WRONG,
+                    "S": ANSWER_SIDE_QUEST,
+                }[answer_flag],
                 timing=timing,
             )
         )
@@ -238,6 +266,8 @@ def write_log(log_path: Path, log_format: str, event: str, **values):
             summary.append(f"player: {values['player']}")
         if "is_correct" in values:
             summary.append(f"correct: {values['is_correct']}")
+        if "is_side_quest" in values:
+            summary.append(f"side_quest: {values['is_side_quest']}")
 
         log_file.write("=" * 88 + "\n")
         log_file.write(" | ".join(summary) + "\n")
@@ -319,9 +349,11 @@ def deploy_and_fund(
     max_shots: int,
     curve_exponent: int,
     answer_hash: str,
+    side_quest_hash: str,
+    side_quest_boost_bps: int,
 ) -> tuple[object, object, str, str | None]:
     game = deployer.deploy(
-        project.KingOfTheHillGiveawayV51,
+        project.KingOfTheHillGiveawayV52,
         token,
         refund_to,
         prompt,
@@ -333,6 +365,8 @@ def deploy_and_fund(
         max_shots,
         curve_exponent,
         answer_hash,
+        side_quest_hash,
+        side_quest_boost_bps,
         nonce=nonce_tracker.next_nonce(deployer),
     )
 
@@ -564,10 +598,32 @@ def timing_target(game, timing: str) -> int:
     help="Hash from `ape run hash_answer`.",
 )
 @click.option(
+    "--side-quest-hash",
+    envvar="KINGOFTHEHILL_SIDE_QUEST_HASH",
+    default=ZERO_BYTES32,
+    show_default=True,
+    callback=lambda _ctx, _param, value: parse_answer_hash(value),
+    help="Optional hidden side quest answer hash.",
+)
+@click.option(
+    "--side-quest-boost-bps",
+    envvar="KINGOFTHEHILL_SIDE_QUEST_BOOST_BPS",
+    default=0,
+    show_default=True,
+    type=int,
+    help="One-time side quest hold-time boost in BPS of game duration.",
+)
+@click.option(
     "--correct-answer",
     envvar="KINGOFTHEHILL_CORRECT_ANSWER",
     required=True,
     help="Plaintext correct answer to submit for Y shots.",
+)
+@click.option(
+    "--side-quest-answer",
+    envvar="KINGOFTHEHILL_SIDE_QUEST_ANSWER",
+    default=None,
+    help="Plaintext side quest answer to submit for S shots.",
 )
 @click.option(
     "--wrong-answer",
@@ -663,7 +719,10 @@ def cli(
     max_shots: int,
     curve_exponent: int,
     answer_hash: str,
+    side_quest_hash: str,
+    side_quest_boost_bps: int,
     correct_answer: str,
+    side_quest_answer: str | None,
     wrong_answer: str,
     scenarios: tuple[str, ...],
     sleep_between_shots: int,
@@ -691,6 +750,9 @@ def cli(
         max_overtime,
         max_shots,
         curve_exponent,
+        answer_hash,
+        side_quest_hash,
+        side_quest_boost_bps,
     )
     if game_seconds <= 0:
         raise click.BadParameter("game-seconds must be greater than zero")
@@ -698,8 +760,13 @@ def cli(
         raise click.BadParameter("sleep-between-shots cannot be negative")
     if clawback and not finalize:
         raise click.BadParameter("clawback requires finalize")
+    if any(step.is_side_quest for scenario in parsed_scenarios for step in scenario):
+        if not side_quest_answer:
+            raise click.BadParameter("side-quest-answer is required for S shots")
+        if side_quest_hash == ZERO_BYTES32:
+            raise click.BadParameter("side-quest-hash is required for S shots")
 
-    click.echo("KingOfTheHillGiveawayV51 live gameplay simulation")
+    click.echo("KingOfTheHillGiveawayV52 live gameplay simulation")
     click.echo(f"account={account}")
     click.echo(f"players={player1},{player2},{player3}")
     click.echo(f"account_private_key={'set' if account_private_key else 'unset'}")
@@ -708,6 +775,8 @@ def cli(
     click.echo(f"refund_to={refund_to}")
     click.echo(f"extension_window={extension_window}")
     click.echo(f"max_overtime={max_overtime}")
+    click.echo(f"side_quest_hash={side_quest_hash}")
+    click.echo(f"side_quest_boost_bps={side_quest_boost_bps}")
     click.echo(f"yes_start={yes_start}")
     click.echo(f"log_file={log_file}")
     click.echo(f"log_format={log_format}")
@@ -746,6 +815,8 @@ def cli(
             max_shots,
             curve_exponent,
             answer_hash,
+            side_quest_hash,
+            side_quest_boost_bps,
         )
         click.echo(f"scenario_{scenario_index}_king_of_the_hill={game.address}")
         write_log(
@@ -817,7 +888,10 @@ def cli(
 
             player_name = step.player_name
             is_correct = step.is_correct
-            answer = correct_answer if is_correct else wrong_answer
+            if step.is_side_quest:
+                answer = side_quest_answer
+            else:
+                answer = correct_answer if is_correct else wrong_answer
             player = players[player_name]
             write_log(
                 log_file,
@@ -828,6 +902,7 @@ def cli(
                 player=player_name,
                 player_address=player.address,
                 is_correct=is_correct,
+                is_side_quest=step.is_side_quest,
                 timing=step.timing,
                 state=snapshot(game, token_contract, players),
             )
@@ -840,6 +915,7 @@ def cli(
                 "shot="
                 f"scenario:{scenario_index},index:{shot_index},"
                 f"player:{player_name},correct:{is_correct},"
+                f"side_quest:{step.is_side_quest},"
                 f"timing:{step.timing or 'now'},tx:{tx_hash(receipt)}"
             )
             write_log(
@@ -851,6 +927,7 @@ def cli(
                 player=player_name,
                 player_address=player.address,
                 is_correct=is_correct,
+                is_side_quest=step.is_side_quest,
                 timing=step.timing,
                 tx=tx_hash(receipt),
                 state=snapshot(game, token_contract, players),

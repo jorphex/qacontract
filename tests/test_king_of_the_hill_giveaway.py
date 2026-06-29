@@ -9,11 +9,13 @@ EXTENSION_WINDOW = 60
 MAX_OVERTIME = 300
 PROMPT = "What color is the candle?"
 ANSWER = "blue candle"
+SIDE_QUEST_ANSWER = "hidden blue candle"
 WRONG_ANSWER = "red candle"
 REASON_WON = 1
 REASON_NO_CORRECT_REIGN = 2
 REASON_CANCELLED_BEFORE_START = 3
 BPS = 10_000
+ZERO_BYTES32 = "0x" + "0" * 64
 
 
 def deploy_game(
@@ -26,12 +28,14 @@ def deploy_game(
     max_overtime=MAX_OVERTIME,
     max_shots=MAX_SHOTS,
     curve_exponent=2,
+    side_quest_hash=ZERO_BYTES32,
+    side_quest_boost_bps=0,
 ):
     creator = accounts[0]
     refund_to = accounts[4]
     token = project.MockERC20.deploy("USD Coin", "USDC", 6, sender=creator)
     token.mint(creator, AMOUNT, sender=creator)
-    game = project.KingOfTheHillGiveawayV51.deploy(
+    game = project.KingOfTheHillGiveawayV52.deploy(
         token.address,
         refund_to.address,
         PROMPT,
@@ -43,6 +47,8 @@ def deploy_game(
         max_shots,
         curve_exponent,
         keccak(text=ANSWER),
+        side_quest_hash,
+        side_quest_boost_bps,
         sender=creator,
     )
     return token, game
@@ -82,6 +88,14 @@ def expected_prize_for_hold(game, hold_time):
     return game.floor_amount() + (
         (game.max_amount() - game.floor_amount()) * curve_bps // BPS
     )
+
+
+def elapsed_cap(game, until):
+    effective_until = min(until, game.original_deadline())
+    if effective_until < game.start_time():
+        return 0
+
+    return effective_until - game.start_time()
 
 
 def test_shoot_captures_hill_and_uses_ammo(project, accounts, chain):
@@ -468,6 +482,151 @@ def test_late_correct_steal_does_not_replace_higher_banked_winner(
     assert alice_expected > alice_current_prize
 
 
+def test_side_quest_answer_counts_correct_and_boosts_hold_time(
+    project, accounts, chain
+):
+    creator = accounts[0]
+    alice = accounts[1]
+    bob = accounts[2]
+    token, game = deploy_game(
+        project,
+        accounts,
+        chain,
+        curve_exponent=1,
+        side_quest_hash=keccak(text=SIDE_QUEST_ANSWER),
+        side_quest_boost_bps=1_000,
+    )
+    fund_and_start(token, game, creator)
+
+    chain.pending_timestamp = game.start_time() + 200
+    chain.mine()
+    game.shoot(SIDE_QUEST_ANSWER, sender=alice)
+    alice_since = game.king_since()
+
+    chain.pending_timestamp = alice_since + 10
+    chain.mine()
+    game.shoot(WRONG_ANSWER, sender=bob)
+
+    natural_hold = game.king_since() - alice_since
+    boosted_hold = natural_hold + game.game_duration() * 1_000 // BPS
+    expected_hold = min(boosted_hold, elapsed_cap(game, game.king_since()))
+    expected = expected_prize_for_hold(game, expected_hold)
+
+    chain.pending_timestamp = game.deadline() + 1
+    chain.mine()
+    game.finalize(sender=creator)
+
+    assert game.winner() == alice.address
+    assert game.paid_amount() == expected
+    assert token.balanceOf(alice) == expected
+    assert expected > expected_prize_for_hold(game, natural_hold)
+
+
+def test_side_quest_boost_cannot_exceed_elapsed_game_time(
+    project, accounts, chain
+):
+    creator = accounts[0]
+    alice = accounts[1]
+    bob = accounts[2]
+    token, game = deploy_game(
+        project,
+        accounts,
+        chain,
+        curve_exponent=1,
+        side_quest_hash=keccak(text=SIDE_QUEST_ANSWER),
+        side_quest_boost_bps=10_000,
+    )
+    fund_and_start(token, game, creator)
+
+    chain.pending_timestamp = game.start_time() + 30
+    chain.mine()
+    game.shoot(SIDE_QUEST_ANSWER, sender=alice)
+
+    chain.pending_timestamp = game.king_since() + 1
+    chain.mine()
+    game.shoot(WRONG_ANSWER, sender=bob)
+    expected_hold = elapsed_cap(game, game.king_since())
+
+    chain.pending_timestamp = game.deadline() + 1
+    chain.mine()
+    game.finalize(sender=creator)
+
+    assert game.winner() == alice.address
+    assert game.paid_amount() == expected_prize_for_hold(game, expected_hold)
+
+
+def test_side_quest_boost_can_only_be_used_once_per_player(
+    project, accounts, chain
+):
+    creator = accounts[0]
+    alice = accounts[1]
+    bob = accounts[2]
+    token, game = deploy_game(
+        project,
+        accounts,
+        chain,
+        curve_exponent=1,
+        side_quest_hash=keccak(text=SIDE_QUEST_ANSWER),
+        side_quest_boost_bps=1_000,
+    )
+    fund_and_start(token, game, creator)
+
+    chain.pending_timestamp = game.start_time() + 200
+    chain.mine()
+    game.shoot(SIDE_QUEST_ANSWER, sender=alice)
+    first_start = game.king_since()
+
+    chain.pending_timestamp = first_start + 10
+    chain.mine()
+    game.shoot(WRONG_ANSWER, sender=bob)
+    first_hold = game.king_since() - first_start
+
+    chain.pending_timestamp = game.king_since() + 100
+    chain.mine()
+    game.shoot(SIDE_QUEST_ANSWER, sender=alice)
+    second_start = game.king_since()
+
+    chain.pending_timestamp = second_start + 10
+    chain.mine()
+    game.shoot(WRONG_ANSWER, sender=bob)
+    second_hold = game.king_since() - second_start
+
+    expected_hold = first_hold + second_hold + game.game_duration() * 1_000 // BPS
+    assert expected_hold < elapsed_cap(game, game.king_since())
+
+    chain.pending_timestamp = game.deadline() + 1
+    chain.mine()
+    game.finalize(sender=creator)
+
+    assert game.winner() == alice.address
+    assert game.paid_amount() == expected_prize_for_hold(game, expected_hold)
+
+
+def test_side_quest_answer_without_boost_is_alternate_correct_answer(
+    project, accounts, chain
+):
+    creator = accounts[0]
+    alice = accounts[1]
+    token, game = deploy_game(
+        project,
+        accounts,
+        chain,
+        side_quest_hash=keccak(text=SIDE_QUEST_ANSWER),
+    )
+    fund_and_start(token, game, creator)
+
+    game.shoot(SIDE_QUEST_ANSWER, sender=alice)
+    since = game.king_since()
+
+    chain.pending_timestamp = game.deadline() + 1
+    chain.mine()
+    game.finalize(sender=creator)
+
+    expected = expected_prize(game, since, game.deadline())
+    assert game.winner() == alice.address
+    assert game.paid_amount() == expected
+
+
 def test_overtime_does_not_increase_prize_past_original_deadline(
     project, accounts, chain
 ):
@@ -636,7 +795,7 @@ def test_invalid_curve_exponent_reverts(project, accounts, chain):
     token = project.MockERC20.deploy("USD Coin", "USDC", 6, sender=creator)
 
     with ape.reverts("bad curve"):
-        project.KingOfTheHillGiveawayV51.deploy(
+        project.KingOfTheHillGiveawayV52.deploy(
             token.address,
             refund_to.address,
             PROMPT,
@@ -648,6 +807,8 @@ def test_invalid_curve_exponent_reverts(project, accounts, chain):
             MAX_SHOTS,
             4,
             keccak(text=ANSWER),
+            ZERO_BYTES32,
+            0,
             sender=creator,
         )
 
@@ -658,7 +819,7 @@ def test_invalid_overtime_settings_revert(project, accounts, chain):
     token = project.MockERC20.deploy("USD Coin", "USDC", 6, sender=creator)
 
     with ape.reverts("bad extension"):
-        project.KingOfTheHillGiveawayV51.deploy(
+        project.KingOfTheHillGiveawayV52.deploy(
             token.address,
             refund_to.address,
             PROMPT,
@@ -670,11 +831,13 @@ def test_invalid_overtime_settings_revert(project, accounts, chain):
             MAX_SHOTS,
             2,
             keccak(text=ANSWER),
+            ZERO_BYTES32,
+            0,
             sender=creator,
         )
 
     with ape.reverts("bad overtime"):
-        project.KingOfTheHillGiveawayV51.deploy(
+        project.KingOfTheHillGiveawayV52.deploy(
             token.address,
             refund_to.address,
             PROMPT,
@@ -686,5 +849,67 @@ def test_invalid_overtime_settings_revert(project, accounts, chain):
             MAX_SHOTS,
             2,
             keccak(text=ANSWER),
+            ZERO_BYTES32,
+            0,
+            sender=creator,
+        )
+
+
+def test_invalid_side_quest_settings_revert(project, accounts, chain):
+    creator = accounts[0]
+    refund_to = accounts[4]
+    token = project.MockERC20.deploy("USD Coin", "USDC", 6, sender=creator)
+
+    with ape.reverts("bad boost"):
+        project.KingOfTheHillGiveawayV52.deploy(
+            token.address,
+            refund_to.address,
+            PROMPT,
+            AMOUNT,
+            FLOOR,
+            chain.pending_timestamp + 1_000,
+            EXTENSION_WINDOW,
+            MAX_OVERTIME,
+            MAX_SHOTS,
+            2,
+            keccak(text=ANSWER),
+            keccak(text=SIDE_QUEST_ANSWER),
+            BPS + 1,
+            sender=creator,
+        )
+
+    with ape.reverts("bad side quest"):
+        project.KingOfTheHillGiveawayV52.deploy(
+            token.address,
+            refund_to.address,
+            PROMPT,
+            AMOUNT,
+            FLOOR,
+            chain.pending_timestamp + 1_000,
+            EXTENSION_WINDOW,
+            MAX_OVERTIME,
+            MAX_SHOTS,
+            2,
+            keccak(text=ANSWER),
+            ZERO_BYTES32,
+            1,
+            sender=creator,
+        )
+
+    with ape.reverts("bad side quest"):
+        project.KingOfTheHillGiveawayV52.deploy(
+            token.address,
+            refund_to.address,
+            PROMPT,
+            AMOUNT,
+            FLOOR,
+            chain.pending_timestamp + 1_000,
+            EXTENSION_WINDOW,
+            MAX_OVERTIME,
+            MAX_SHOTS,
+            2,
+            keccak(text=ANSWER),
+            keccak(text=ANSWER),
+            0,
             sender=creator,
         )

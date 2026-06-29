@@ -670,6 +670,14 @@
       {
         "name": "_answer_hash",
         "type": "bytes32"
+      },
+      {
+        "name": "_side_quest_hash",
+        "type": "bytes32"
+      },
+      {
+        "name": "_side_quest_boost_bps",
+        "type": "uint256"
       }
     ],
     "stateMutability": "nonpayable",

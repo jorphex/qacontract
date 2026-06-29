@@ -4,11 +4,13 @@ Vyper contract workspace for onchain ERC20 giveaway games.
 
 The active contract is:
 
-- `KingOfTheHillGiveawayV51`: v5.1 king-of-the-hill giveaway where players call
+- `KingOfTheHillGiveawayV52`: v5.2 king-of-the-hill giveaway where players call
   `shoot(answer)`, each wallet has limited shots, the visible king can be
   stolen until the live deadline, late shots extend the live deadline within a
   capped overtime window, and the correct holder with the highest banked prize
   wins using cumulative correct hold time capped at the original deadline.
+  V5.2 also supports an optional hidden sidequest answer that grants a one-time
+  capped hold-time boost through the same `shoot(answer)` function.
 
 Older v1-v5 prompt-claim, puzzle-ramp, and KOTH experiments are preserved under
 `deprecated/`.
@@ -62,9 +64,9 @@ Blue Candle
 
 Use `--normalize` only if you intentionally want a stripped, lowercase answer.
 
-## KingOfTheHillGiveawayV51 Flow
+## KingOfTheHillGiveawayV52 Flow
 
-Deploy and fund v5.1 on Base mainnet:
+Deploy and fund v5.2 on Base mainnet:
 
 ```sh
 uv run ape run deploy_and_fund_king_of_the_hill \
@@ -79,10 +81,12 @@ uv run ape run deploy_and_fund_king_of_the_hill \
   --max-overtime 300 \
   --max-shots 3 \
   --curve-exponent 2 \
-  --answer-hash 0xYourAnswerHash
+  --answer-hash 0xYourAnswerHash \
+  --side-quest-hash 0x0000000000000000000000000000000000000000000000000000000000000000 \
+  --side-quest-boost-bps 0
 ```
 
-The script deploys `KingOfTheHillGiveawayV51`, stores the public `prompt`,
+The script deploys `KingOfTheHillGiveawayV52`, stores the public `prompt`,
 approves token spend, and calls `fund()`. It does not start the game unless
 `--start-now` is passed.
 
@@ -93,6 +97,18 @@ prevents final-second snipes by extending the live shooting deadline when a
 shot lands with less than that much time remaining. `--max-overtime` caps total
 extension. Prize growth never continues past the original deadline, so overtime
 shots can still win but cannot push the prize above the original cap.
+
+`--side-quest-hash` is an optional second answer hash. If it is nonzero, that
+answer also counts as correct when submitted through `shoot(answer)`.
+`--side-quest-boost-bps` is a one-time boost per address in basis points of the
+game duration. `1000` means 10%; `10000` means 100%. The boost adds hold time,
+not tokens, and the result is capped to the elapsed hold time possible from
+game start to that shot/reign record time. This means the sidequest can help a
+player catch up to the global release trajectory, but cannot exceed it.
+
+Leave both sidequest values at zero to disable the feature. If
+`--side-quest-boost-bps` is nonzero, `--side-quest-hash` must be nonzero and
+must differ from `--answer-hash`.
 
 The default token is native USDC for the selected Base network when
 `KINGOFTHEHILL_TOKEN` and `--token` are omitted.
@@ -176,7 +192,7 @@ Use that pause to set `KINGOFTHEHILL_ADDRESS` for the live UI and confirm the
 contract is visible before the game clock starts. Pass `--yes-start` only when
 you want unattended runs.
 
-With no `--scenario`, the default run exercises v5.1 overtime in one game and
+With no `--scenario`, the default run exercises v5.2 overtime in one game and
 assumes the default `--max-shots 3`:
 
 ```text
@@ -190,7 +206,7 @@ That means player 1 spends all shots before the original deadline, player 2's
 last shot is wrong in overtime, and player 3's last shot is correct in
 overtime.
 
-To test a different v5.1 overtime path, add timed shot suffixes:
+To test a different v5.2 overtime path, add timed shot suffixes:
 
 ```sh
 uv run ape run simulate_king_of_the_hill_gameplay \
@@ -210,12 +226,15 @@ should extend the live deadline. `@overtime` waits until after
 live deadline first. Ordinary steps like `p3:N` still execute immediately.
 
 `Y` submits `KINGOFTHEHILL_CORRECT_ANSWER`; `N` submits
-`KINGOFTHEHILL_WRONG_ANSWER`. The script deploys, funds, and starts a fresh
-contract for each scenario, logs every read-state snapshot before and after
-each shot, and writes readable event blocks to `KINGOFTHEHILL_SIM_LOG_FILE`.
-Use `KINGOFTHEHILL_SIM_LOG_FORMAT=jsonl` or `--log-format jsonl` if you need
-newline-delimited JSON. Logs are replaced at the start of each run; pass
-`--append-log` only when you intentionally want cumulative logs.
+`KINGOFTHEHILL_WRONG_ANSWER`; `S` submits
+`KINGOFTHEHILL_SIDE_QUEST_ANSWER`. `S` scenarios require
+`KINGOFTHEHILL_SIDE_QUEST_HASH` to be set. The script deploys, funds, and
+starts a fresh contract for each scenario, logs every read-state snapshot
+before and after each shot, and writes readable event blocks to
+`KINGOFTHEHILL_SIM_LOG_FILE`. Use `KINGOFTHEHILL_SIM_LOG_FORMAT=jsonl` or
+`--log-format jsonl` if you need newline-delimited JSON. Logs are replaced at
+the start of each run; pass `--append-log` only when you intentionally want
+cumulative logs.
 
 By default, each scenario uses `KINGOFTHEHILL_SIM_GAME_SECONDS` for its fresh
 deadline. The normal `KINGOFTHEHILL_DEADLINE` deploy setting is ignored by the
@@ -238,6 +257,8 @@ Prize rule:
 - correct hold time is banked internally per address without a public getter
 - if a previous correct holder recaptures with the correct answer, their
   previous correct hold time resumes
+- a hidden sidequest answer can count as correct and apply a one-time
+  hold-time boost, capped by elapsed time since game start
 - wrong-answer hold time never banks
 - `deadline()` is the live shooting/finalization deadline and can extend
 - `original_deadline()` is the fixed prize-growth cap
