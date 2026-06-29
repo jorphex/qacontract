@@ -14,6 +14,7 @@ let state = {};
 let refreshTimer = null;
 let lastShotSequence = 0;
 const REFRESH_INTERVAL = 2000;
+let currentInterval = REFRESH_INTERVAL;
 
 // ── Helpers ────────────────────────────────────────────────
 const $ = (sel) => document.querySelector(sel);
@@ -609,6 +610,7 @@ async function refresh() {
     triggerCrownAnimation();
   }
   lastShotSequence = state.shotSequence;
+  adjustRefreshInterval();
 }
 
 async function call(contractObj, fn, ...args) {
@@ -811,13 +813,38 @@ async function init() {
 function startRefresh() {
   if (refreshTimer) return;
   refresh();
-  refreshTimer = setInterval(refresh, REFRESH_INTERVAL);
+  refreshTimer = setInterval(refresh, currentInterval);
 }
 
 function stopRefresh() {
   if (refreshTimer) {
     clearInterval(refreshTimer);
     refreshTimer = null;
+  }
+}
+
+function adjustRefreshInterval() {
+  if (state.ended) {
+    stopRefresh();
+    return;
+  }
+  const now = nowSeconds();
+  const timeLeft = Math.max(0, state.deadline - now);
+  const recentShot = lastShotSequence > 0 && state.shotSequence > lastShotSequence;
+  let nextInterval = REFRESH_INTERVAL;
+  if (timeLeft > 0 && timeLeft <= 60) {
+    nextInterval = 1000;
+  } else if (!state.started) {
+    nextInterval = 10000;
+  } else if (!recentShot) {
+    nextInterval = 3000;
+  }
+  if (nextInterval !== currentInterval) {
+    currentInterval = nextInterval;
+    if (refreshTimer) {
+      clearInterval(refreshTimer);
+      refreshTimer = setInterval(refresh, currentInterval);
+    }
   }
 }
 
