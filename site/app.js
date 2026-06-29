@@ -670,6 +670,20 @@ function renderHistory(shots) {
   `).join('');
 }
 
+// ── Idle Mode ────────────────────────────────────────────
+function showIdleState(reason = 'No active game is configured right now. Check back soon.') {
+  document.body.classList.add('idle');
+  const h2 = $('.hero-text h2');
+  const p = $('.hero-text p');
+  if (h2) h2.textContent = 'No Active Game';
+  if (p) p.textContent = reason;
+  const status = $('#status');
+  if (status) {
+    status.textContent = 'Idle';
+    status.classList.remove('live');
+  }
+}
+
 // ── Mock Mode ─────────────────────────────────────────────
 function useMockData() {
   useMock = true;
@@ -779,8 +793,8 @@ async function init() {
       link.href = `${base}/address/${config.contractAddress}`;
     }
   } catch (err) {
-    console.warn('Live contract unavailable, using mock:', err.message);
-    useMockData();
+    console.warn('Live contract unavailable:', err.message);
+    showIdleState();
     return;
   }
 
