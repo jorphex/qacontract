@@ -798,8 +798,27 @@ async function init() {
     return;
   }
 
-  await refresh();
+  startRefresh();
+  document.addEventListener('visibilitychange', () => {
+    if (document.hidden) {
+      stopRefresh();
+    } else {
+      startRefresh();
+    }
+  });
+}
+
+function startRefresh() {
+  if (refreshTimer) return;
+  refresh();
   refreshTimer = setInterval(refresh, REFRESH_INTERVAL);
+}
+
+function stopRefresh() {
+  if (refreshTimer) {
+    clearInterval(refreshTimer);
+    refreshTimer = null;
+  }
 }
 
 document.addEventListener('DOMContentLoaded', init);
