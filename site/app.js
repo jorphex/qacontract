@@ -557,6 +557,7 @@ async function refresh() {
   const heading = state.ended ? (state.winner ? 'Winner' : 'No Winner') : 'Current King';
   $('#king-heading').textContent = heading;
   $('#king').textContent = addrShort(displayHolder);
+  $('.king-section').classList.toggle('ended', state.ended);
   $('#king-since-label').textContent = state.ended ? 'Won At' : 'Captured';
   $('#king-since').textContent = state.kingSince ? fmtTime(state.kingSince) : '—';
 

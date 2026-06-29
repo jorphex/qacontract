@@ -419,6 +419,10 @@ body {
   color: var(--text);
 }
 
+.king-section.ended .king-details {
+  display: none;
+}
+
 /* ── History Table ──────────────────────────────── */
 .table-wrap {
   background: var(--surface);
