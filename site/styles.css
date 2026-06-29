@@ -179,12 +179,6 @@ body {
   max-width: 560px;
 }
 
-.side-quest {
-  margin-top: 0.6rem;
-  color: var(--text-muted);
-  font-size: 0.85rem;
-}
-
 .hero-top {
   display: flex;
   align-items: center;

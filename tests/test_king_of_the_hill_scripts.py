@@ -1,4 +1,5 @@
 import json
+from pathlib import Path
 from types import SimpleNamespace
 
 import click
@@ -13,6 +14,7 @@ from scripts import (
 
 
 SITE_ABI_PATH = "site/abi.json"
+SITE_FRONTEND_PATHS = ("site/app.js", "site/index.html", "site/styles.css")
 
 
 AMOUNT = 1_000_000
@@ -92,6 +94,9 @@ def clear_simulation_env(monkeypatch):
         "KINGOFTHEHILL_SIM_DEADLINE",
         "KINGOFTHEHILL_SIM_SLEEP_BETWEEN_SHOTS",
         "KINGOFTHEHILL_SIM_LOG_FORMAT",
+        "KINGOFTHEHILL_SIDE_QUEST_HASH",
+        "KINGOFTHEHILL_SIDE_QUEST_BOOST_BPS",
+        "KINGOFTHEHILL_SIDE_QUEST_ANSWER",
     ):
         monkeypatch.delenv(name, raising=False)
 
@@ -100,10 +105,15 @@ def test_site_abi_does_not_expose_constructor_side_quest_metadata():
     with open(SITE_ABI_PATH, encoding="utf-8") as abi_file:
         abi_text = abi_file.read()
     abi = json.loads(abi_text)
+    frontend_text = "\n".join(
+        Path(path).read_text(encoding="utf-8") for path in SITE_FRONTEND_PATHS
+    )
 
     assert all(entry.get("type") != "constructor" for entry in abi)
     assert "side_quest" not in abi_text
     assert "side-quest" not in abi_text
+    assert "side quest" not in frontend_text.lower()
+    assert "sidequest" not in frontend_text.lower()
 
 
 def test_default_token_uses_base_sepolia_when_selected(monkeypatch):
