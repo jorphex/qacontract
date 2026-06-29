@@ -1,3 +1,4 @@
+import json
 from types import SimpleNamespace
 
 import click
@@ -9,6 +10,9 @@ from scripts import (
     simulate_king_of_the_hill_gameplay,
     start_king_of_the_hill,
 )
+
+
+SITE_ABI_PATH = "site/abi.json"
 
 
 AMOUNT = 1_000_000
@@ -90,6 +94,16 @@ def clear_simulation_env(monkeypatch):
         "KINGOFTHEHILL_SIM_LOG_FORMAT",
     ):
         monkeypatch.delenv(name, raising=False)
+
+
+def test_site_abi_does_not_expose_constructor_side_quest_metadata():
+    with open(SITE_ABI_PATH, encoding="utf-8") as abi_file:
+        abi_text = abi_file.read()
+    abi = json.loads(abi_text)
+
+    assert all(entry.get("type") != "constructor" for entry in abi)
+    assert "side_quest" not in abi_text
+    assert "side-quest" not in abi_text
 
 
 def test_default_token_uses_base_sepolia_when_selected(monkeypatch):
