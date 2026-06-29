@@ -1,16 +1,9 @@
-# Copy to wrangler.toml and adjust for your domain.
-# Keep ALCHEMY_RPC_URL and KINGOFTHEHILL_ADDRESS as secrets, not plain vars.
-#
-# Pages will own the root hostname; this Worker only handles
-# /api/* so there is no custom_domain flag here.
+# Copy to scripts/wrangler.toml locally.
+# Do not commit scripts/wrangler.toml — account_id and routes are injected at deploy time.
 
 name = "kingofthehill-api"
 main = "cloudflare_worker.js"
 compatibility_date = "2026-06-26"
-
-routes = [
-  { pattern = "your-domain.example/api/*" }
-]
 
 [vars]
 CHAIN_ID = "8453"
