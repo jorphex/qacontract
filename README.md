@@ -4,12 +4,13 @@ Vyper contract workspace for onchain ERC20 giveaway games.
 
 The active contract is:
 
-- `KingOfTheHillGiveaway`: v4 king-of-the-hill giveaway where players call
+- `KingOfTheHillGiveawayV5`: v5 king-of-the-hill giveaway where players call
   `shoot(answer)`, each wallet has limited shots, the visible king can be
-  stolen until expiry, and the latest correct holder wins a prize based on
-  their cumulative correct hold time.
+  stolen until the live deadline, late shots extend the live deadline within a
+  capped overtime window, and the latest correct holder wins a prize based on
+  their cumulative correct hold time capped at the original deadline.
 
-Older v1-v3 prompt-claim and puzzle-ramp experiments are preserved under
+Older v1-v4 prompt-claim, puzzle-ramp, and KOTH experiments are preserved under
 `deprecated/`.
 
 ## Development
@@ -61,9 +62,9 @@ Blue Candle
 
 Use `--normalize` only if you intentionally want a stripped, lowercase answer.
 
-## KingOfTheHillGiveaway Flow
+## KingOfTheHillGiveawayV5 Flow
 
-Deploy and fund v4 on Base mainnet:
+Deploy and fund v5 on Base mainnet:
 
 ```sh
 uv run ape run deploy_and_fund_king_of_the_hill \
@@ -74,16 +75,24 @@ uv run ape run deploy_and_fund_king_of_the_hill \
   --max-amount 1000000 \
   --floor-amount 10000 \
   --deadline 1893456000 \
-  --max-shots 5 \
+  --extension-window 60 \
+  --max-overtime 300 \
+  --max-shots 3 \
   --curve-exponent 2 \
   --answer-hash 0xYourAnswerHash
 ```
 
-The script deploys `KingOfTheHillGiveaway`, stores the public `prompt`,
+The script deploys `KingOfTheHillGiveawayV5`, stores the public `prompt`,
 approves token spend, and calls `fund()`. It does not start the game unless
 `--start-now` is passed.
 
 `1000000` is `1 USDC` because USDC has 6 decimals.
+
+`--deadline` is the original prize-growth deadline. `--extension-window`
+prevents final-second snipes by extending the live shooting deadline when a
+shot lands with less than that much time remaining. `--max-overtime` caps total
+extension. Prize growth never continues past the original deadline, so overtime
+shots can still win but cannot push the prize above the original cap.
 
 The default token is native USDC for the selected Base network when
 `KINGOFTHEHILL_TOKEN` and `--token` are omitted.
@@ -161,6 +170,45 @@ uv run ape run simulate_king_of_the_hill_gameplay \
   --clawback
 ```
 
+The simulator deploys and funds a fresh game, prints
+`scenario_N_king_of_the_hill=...`, then asks before calling `start_game()`.
+Use that pause to set `KINGOFTHEHILL_ADDRESS` for the live UI and confirm the
+contract is visible before the game clock starts. Pass `--yes-start` only when
+you want unattended runs.
+
+With no `--scenario`, the default run exercises v5 overtime in one game and
+assumes the default `--max-shots 3`:
+
+```text
+p1:N,p1:Y,
+p2:Y,p2:N,
+p3:N,p3:N,
+p1:N@late,p2:N@overtime,p3:Y@overtime
+```
+
+That means player 1 spends all shots before the original deadline, player 2's
+last shot is wrong in overtime, and player 3's last shot is correct in
+overtime.
+
+To test a different v5 overtime path, add timed shot suffixes:
+
+```sh
+uv run ape run simulate_king_of_the_hill_gameplay \
+  --network base:sepolia:node \
+  --game-seconds 90 \
+  --extension-window 30 \
+  --max-overtime 90 \
+  --scenario "p1:Y@late,p2:Y@overtime,p3:N" \
+  --yes-start \
+  --finalize \
+  --clawback
+```
+
+`@late` waits until the shot is inside the current extension window, so it
+should extend the live deadline. `@overtime` waits until after
+`original_deadline()` and requires an earlier late shot to have extended the
+live deadline first. Ordinary steps like `p3:N` still execute immediately.
+
 `Y` submits `KINGOFTHEHILL_CORRECT_ANSWER`; `N` submits
 `KINGOFTHEHILL_WRONG_ANSWER`. The script deploys, funds, and starts a fresh
 contract for each scenario, logs every read-state snapshot before and after
@@ -191,12 +239,16 @@ Prize rule:
 - if a previous correct holder recaptures with the correct answer, their
   previous correct hold time resumes
 - wrong-answer hold time never banks
+- `deadline()` is the live shooting/finalization deadline and can extend
+- `original_deadline()` is the fixed prize-growth cap
+- overtime does not refill shots or increase prize growth past the original
+  deadline
 - `king_prize()` is a neutral live display value for the current reign only; it
   excludes banked correct hold time so the ABI/UI does not reveal correctness
 - this is not cryptographic secrecy; determined users can still inspect raw
   chain data, so commit-reveal is needed if correctness must be hidden strongly
 
-At expiry, anyone can call:
+After the live deadline, anyone can call:
 
 ```text
 finalize()
@@ -245,10 +297,16 @@ Useful read functions for Basescan or the live UI:
 
 ```text
 prompt()
+original_deadline()
+deadline()
+max_deadline()
+extension_window()
+max_overtime()
 king()
 king_since()
 king_prize()
 prize_for_hold_time(uint256)
+max_shots()
 shots_used(address)
 shots_remaining(address)
 winner()
