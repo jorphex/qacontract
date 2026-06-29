@@ -14,6 +14,7 @@ let state = {};
 let refreshTimer = null;
 let countdownTimer = null;
 let lastShotSequence = 0;
+let startBlock = null;
 const BASE_INTERVAL = 3000;
 const ACTIVE_INTERVAL = 1000;
 const IDLE_INTERVAL = 10000;
@@ -587,7 +588,15 @@ async function refresh() {
   $('#king-held').textContent = heldText;
 
   // Build reigns from Shot events
-  const shots = await call(contract, 'queryFilter', 'Shot');
+  if (startBlock == null) {
+    try {
+      const currentBlock = await provider.getBlockNumber();
+      startBlock = Math.max(0, currentBlock - 100000);
+    } catch {
+      startBlock = 0;
+    }
+  }
+  const shots = await call(contract, 'queryFilter', 'Shot', startBlock);
   const reigns = [];
   const reignEnd = state.ended ? state.deadline : Math.min(now, state.deadline);
   if (shots && shots.length > 0) {
