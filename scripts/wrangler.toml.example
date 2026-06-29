@@ -1,7 +1,7 @@
 # Copy to wrangler.toml and adjust for your domain.
 # Keep ALCHEMY_RPC_URL and KINGOFTHEHILL_ADDRESS as secrets, not plain vars.
 #
-# Pages will own the root hostname (ga.jjjjj.dev); this Worker only handles
+# Pages will own the root hostname; this Worker only handles
 # /api/* so there is no custom_domain flag here.
 
 name = "kingofthehill-api"
@@ -9,7 +9,7 @@ main = "cloudflare_worker.js"
 compatibility_date = "2026-06-26"
 
 routes = [
-  { pattern = "ga.jjjjj.dev/api/*" }
+  { pattern = "your-domain.example/api/*" }
 ]
 
 [vars]

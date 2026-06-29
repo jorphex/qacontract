@@ -11,5 +11,6 @@ __pycache__/
 logs/
 node_modules/
 .wrangler/
+scripts/wrangler.toml
 /king_of_the_hill_chart.py
 /king_of_the_hill_chart.png
