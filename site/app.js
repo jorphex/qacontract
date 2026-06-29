@@ -1,6 +1,4 @@
-// Read-only live state viewer for King of the Hill v4.
-// Connects to a real contract via the same-origin /api/rpc proxy.
-// Falls back to mock data if no contract is configured.
+// King of the Hill v5 — prototype viewer wired to the live contract.
 
 const ERC20_ABI = [
   'function decimals() view returns (uint8)',
@@ -9,61 +7,61 @@ const ERC20_ABI = [
 ];
 
 const EMPTY_ADDRESS = '0x' + '0'.repeat(40);
-const MOCK_GAME_DURATION_S = 5 * 3600;
 
-const THEME = {
-  bg: '#08050a',
-  grid: 'rgba(255, 251, 245, 0.06)',
-  text: '#fffbf5',
-  textSecondary: '#9a8b7a',
-  accent: '#ff7b00',
-  curve: '#ff7b00',
-};
-
-let provider = null;
-let contract = null;
-let tokenContract = null;
-let tokenDecimals = 18;
+let provider, contract, tokenContract;
 let useMock = false;
-let stateDirty = true;
+let state = {};
+let refreshTimer = null;
+let lastShotSequence = 0;
+const REFRESH_INTERVAL = 1000;
+
+// ── Helpers ────────────────────────────────────────────────
+const $ = (sel) => document.querySelector(sel);
+const addrShort = (a) => a && a !== EMPTY_ADDRESS ? `${a.slice(0, 6)}…${a.slice(-4)}` : 'No king';
+
+function fmtTime(ts) {
+  const d = new Date(ts * 1000);
+  return d.toLocaleString('en-US', {
+    month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit', second: '2-digit',
+  });
+}
+
+function formatDuration(seconds) {
+  if (seconds <= 0) return '0s';
+  const d = Math.floor(seconds / 86400);
+  const h = Math.floor((seconds % 86400) / 3600);
+  const m = Math.floor((seconds % 3600) / 60);
+  const s = Math.floor(seconds % 60);
+  const parts = [];
+  if (d) parts.push(`${d}d`);
+  if (h) parts.push(`${h}h`);
+  if (m) parts.push(`${m}m`);
+  if (s || !parts.length) parts.push(`${s}s`);
+  return parts.join(' ');
+}
+
+function formatToken(raw) {
+  if (raw === undefined || raw === null) return '—';
+  const val = Number(raw) / Math.pow(10, state.tokenDecimals || 18);
+  if (val >= 1000) return `${val.toLocaleString(undefined, { maximumFractionDigits: 0 })} ${state.tokenSymbol || ''}`.trim();
+  if (val >= 1) return `${val.toLocaleString(undefined, { maximumFractionDigits: 2 })} ${state.tokenSymbol || ''}`.trim();
+  return `${val.toLocaleString(undefined, { maximumFractionDigits: 6 })} ${state.tokenSymbol || ''}`.trim();
+}
 
 function nowSeconds() {
   return Math.floor(Date.now() / 1000);
 }
 
-function buildMockState() {
-  const start = nowSeconds() - Math.floor(0.9 * MOCK_GAME_DURATION_S);
-  const deadline = start + MOCK_GAME_DURATION_S;
-  return {
-    startTime: start,
-    deadline,
-    gameDuration: MOCK_GAME_DURATION_S,
-    maxAmount: 200,
-    floorAmount: 5,
-    curveExponent: 2,
-    maxShots: 5,
-    prizePool: 200n * 10n ** 18n,
-    funded: true,
-    started: true,
-    ended: false,
-    currentHolder: '0xAbCDEF1234567890abcdef1234567890ABCDEF12',
-    kingSince: start + Math.floor(0.7 * MOCK_GAME_DURATION_S),
-    currentPrize: 120n * 10n ** 18n,
-    paidAmount: 0n,
-    winner: null,
-    tokenSymbol: 'TEST',
-    reigns: [
-      { start: start + 0.00 * MOCK_GAME_DURATION_S, end: start + 0.25 * MOCK_GAME_DURATION_S, player: '0x1111111111111111111111111111111111111111' },
-      { start: start + 0.25 * MOCK_GAME_DURATION_S, end: start + 0.55 * MOCK_GAME_DURATION_S, player: '0x2222222222222222222222222222222222222222' },
-      { start: start + 0.55 * MOCK_GAME_DURATION_S, end: start + 0.80 * MOCK_GAME_DURATION_S, player: '0x3333333333333333333333333333333333333333' },
-      { start: start + 0.80 * MOCK_GAME_DURATION_S, end: null, player: '0xAbCDEF1234567890abcdef1234567890ABCDEF12' },
-    ],
-  };
+function curveValue(elapsed, floor, max, duration, exponent) {
+  if (!duration || elapsed <= 0) return floor;
+  const p = Math.min(elapsed / duration, 1);
+  let curve = p;
+  if (exponent === 2) curve = p * p;
+  else if (exponent === 3) curve = p * p * p;
+  return floor + (max - floor) * curve;
 }
 
-let state = buildMockState();
-let config = null;
-
+// ── Config ─────────────────────────────────────────────────
 async function loadConfig() {
   const [configRes, abiRes] = await Promise.all([
     fetch('/api/config'),
@@ -79,330 +77,9 @@ async function loadConfig() {
   return { config: cfg, abi };
 }
 
-function formatAddress(addr) {
-  if (!addr || addr === EMPTY_ADDRESS) return '-';
-  const s = typeof addr === 'string' ? addr : addr.toString();
-  return s.length > 12 ? `${s.slice(0, 6)}…${s.slice(-4)}` : s;
-}
-
-function formatDuration(seconds) {
-  if (seconds <= 0) return '0s';
-  const h = Math.floor(seconds / 3600);
-  const m = Math.floor((seconds % 3600) / 60);
-  const s = seconds % 60;
-  const parts = [];
-  if (h) parts.push(`${h}h`);
-  if (m) parts.push(`${m}m`);
-  if (s || !parts.length) parts.push(`${s}s`);
-  return parts.join(' ');
-}
-
-function formatToken(value) {
-  if (value === undefined || value === null) return '-';
-  try {
-    const raw = typeof value === 'bigint' ? value : BigInt(value.toString());
-    const human = Number(ethers.formatUnits(raw, tokenDecimals));
-    return `${human.toLocaleString('en-US', { maximumFractionDigits: 4 })} ${state.tokenSymbol || ''}`.trim();
-  } catch {
-    return value.toString();
-  }
-}
-
-function formatAmount(value) {
-  if (value === undefined || value === null) return '-';
-  return `${Number(value).toFixed(4)} ${state.tokenSymbol || ''}`.trim();
-}
-
-function curveValue(elapsedSeconds) {
-  const { floorAmount, maxAmount, gameDuration, curveExponent } = state;
-  if (!gameDuration || elapsedSeconds <= 0) return floorAmount;
-  const p = Math.min(elapsedSeconds / gameDuration, 1);
-  let curve = p;
-  if (curveExponent === 2) curve = p * p;
-  else if (curveExponent === 3) curve = p * p * p;
-  return floorAmount + (maxAmount - floorAmount) * curve;
-}
-
-function timePct(timestamp) {
-  if (!state.gameDuration) return 0;
-  return (timestamp - state.startTime) / state.gameDuration;
-}
-
-function currentTimePct() {
-  return Math.min(timePct(nowSeconds()), 1);
-}
-
-function currentPrizeValue() {
-  if (!state.currentHolder || state.currentHolder === EMPTY_ADDRESS || !state.started || state.ended) {
-    return 0;
-  }
-  const now = Math.min(nowSeconds(), state.deadline);
-  return curveValue(now - state.kingSince);
-}
-
-// ── Stats ────────────────────────────────────────────────
-function renderStats() {
-  const now = nowSeconds();
-  const timeLeft = Math.max(0, state.deadline - now);
-
-  let status;
-  if (state.ended) status = 'Ended';
-  else if (!state.funded) status = 'Not funded';
-  else if (!state.started) status = 'Funded · not started';
-  else if (state.deadline && now > state.deadline) status = 'Expired · awaiting finalization';
-  else status = 'Live';
-
-  const prizeDisplay = state.ended && state.paidAmount && state.paidAmount.toString() !== '0'
-    ? formatToken(state.paidAmount)
-    : state.started && !state.ended && state.currentHolder && state.currentHolder !== EMPTY_ADDRESS
-      ? formatAmount(currentPrizeValue())
-      : state.currentPrize !== undefined
-        ? formatToken(state.currentPrize)
-        : formatAmount(currentPrizeValue());
-
-  const statusEl = document.getElementById('status');
-  statusEl.textContent = status;
-  if (status === 'Live') statusEl.style.color = THEME.accent;
-  else statusEl.style.color = '';
-
-  document.getElementById('pool').textContent = formatToken(state.prizePool);
-  document.getElementById('timer').textContent = state.ended ? '—' : formatDuration(timeLeft);
-  document.getElementById('prize').textContent = prizeDisplay;
-  document.getElementById('prize-label').textContent = state.ended ? 'Winner Prize' : 'Current Reign Prize';
-  document.getElementById('max-shots').textContent = state.maxShots ?? '—';
-
-  const kingEl = document.getElementById('king');
-  if (state.currentHolder && state.currentHolder !== EMPTY_ADDRESS) {
-    kingEl.innerHTML = `
-      <div class="king-row">
-        <span class="king-address">${formatAddress(state.currentHolder)}</span>
-        <span class="king-meta">since ${formatTimestamp(state.kingSince)}</span>
-      </div>
-    `;
-  } else {
-    kingEl.innerHTML = '<span class="king-empty">No one holds the hill yet.</span>';
-  }
-}
-
-function formatTimestamp(ts) {
-  const d = new Date(ts * 1000);
-  return d.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', second: '2-digit' });
-}
-
-// ── History ──────────────────────────────────────────────
-function renderHistory() {
-  const tbody = document.getElementById('history-body');
-  tbody.innerHTML = '';
-
-  const rows = (state.reigns || []).slice().reverse();
-  if (rows.length === 0) {
-    tbody.innerHTML = '<tr class="empty-row"><td colspan="3">No reigns yet.</td></tr>';
-    return;
-  }
-
-  for (const reign of rows) {
-    const isCurrent = reign.end === null;
-    const end = isCurrent ? Math.min(nowSeconds(), state.deadline || nowSeconds()) : reign.end;
-    const prize = curveValue(end - reign.start);
-
-    const tr = document.createElement('tr');
-    if (isCurrent) tr.classList.add('current-king-row');
-    tr.innerHTML = `
-      <td>${isCurrent ? 'now' : formatTimestamp(end)}</td>
-      <td>
-        ${isCurrent ? '<span class="king-dot">♔</span>' : ''}
-        ${formatAddress(reign.player)}
-      </td>
-      <td>${formatAmount(prize)}</td>
-    `;
-    tbody.appendChild(tr);
-  }
-}
-
-// ── Timeline chart ───────────────────────────────────────
-const canvas = document.getElementById('viz');
-const ctx = canvas.getContext('2d');
-let canvasBounds = { width: 0, height: 0, dpr: 1 };
-
-function setupCanvas() {
-  const dpr = Math.min(window.devicePixelRatio || 1, 2);
-  const rect = canvas.getBoundingClientRect();
-  canvas.width = Math.floor(rect.width * dpr);
-  canvas.height = Math.floor(rect.height * dpr);
-  canvasBounds = { width: canvas.width, height: canvas.height, dpr };
-  ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
-}
-
-const PAD = { top: 30, right: 30, bottom: 40, left: 50 };
-
-function toCanvasX(pct) {
-  const plotW = canvasBounds.width / canvasBounds.dpr - PAD.left - PAD.right;
-  return PAD.left + pct * plotW;
-}
-
-function toCanvasY(value) {
-  const plotH = canvasBounds.height / canvasBounds.dpr - PAD.top - PAD.bottom;
-  const yMax = (state.maxAmount || 200) * 1.1;
-  return PAD.top + plotH * (1 - value / yMax);
-}
-
-function drawLine(x1, y1, x2, y2, color, width = 2, dash = []) {
-  ctx.beginPath();
-  ctx.moveTo(x1, y1);
-  ctx.lineTo(x2, y2);
-  ctx.strokeStyle = color;
-  ctx.lineWidth = width;
-  ctx.setLineDash(dash);
-  ctx.stroke();
-  ctx.setLineDash([]);
-}
-
-function drawText(text, x, y, opts = {}) {
-  ctx.font = opts.font || 'bold 11px "JetBrains Mono", monospace';
-  ctx.fillStyle = opts.color || THEME.text;
-  ctx.textAlign = opts.align || 'left';
-  ctx.textBaseline = opts.baseline || 'middle';
-  ctx.fillText(text, x, y);
-}
-
-function drawAxes() {
-  const w = canvasBounds.width / canvasBounds.dpr;
-  const h = canvasBounds.height / canvasBounds.dpr;
-  const yMax = (state.maxAmount || 200) * 1.1;
-  const step = Math.ceil((yMax / 10) / 10) * 10 || 10;
-
-  for (let v = 0; v <= yMax; v += step) {
-    const y = toCanvasY(v);
-    drawLine(PAD.left, y, w - PAD.right, y, THEME.grid, 1, [4, 4]);
-    drawText(String(Math.round(v)), PAD.left - 10, y, { align: 'right', color: THEME.textSecondary });
-  }
-
-  for (let t = 0; t <= 100; t += 20) {
-    const x = toCanvasX(t / 100);
-    drawLine(x, PAD.top, x, h - PAD.bottom, THEME.grid, 1, [4, 4]);
-    drawText(String(t), x, h - PAD.bottom + 20, { align: 'center', color: THEME.textSecondary });
-  }
-
-  drawLine(PAD.left, PAD.top, PAD.left, h - PAD.bottom, THEME.textSecondary, 1.5);
-  drawLine(PAD.left, h - PAD.bottom, w - PAD.right, h - PAD.bottom, THEME.textSecondary, 1.5);
-
-  drawText('Game Time (%)', (PAD.left + w - PAD.right) / 2, h - 10, {
-    align: 'center', color: THEME.textSecondary, font: 'bold 12px "JetBrains Mono", monospace',
-  });
-  ctx.save();
-  ctx.translate(16, (PAD.top + h - PAD.bottom) / 2);
-  ctx.rotate(-Math.PI / 2);
-  drawText('Prize', 0, 0, { align: 'center', color: THEME.textSecondary, font: 'bold 12px "JetBrains Mono", monospace' });
-  ctx.restore();
-}
-
-function drawReign(reign) {
-  const startPct = timePct(reign.start);
-  const endPct = reign.end === null ? currentTimePct() : timePct(reign.end);
-
-  ctx.beginPath();
-  const steps = 80;
-  for (let i = 0; i <= steps; i++) {
-    const pct = startPct + (endPct - startPct) * (i / steps);
-    const elapsed = (pct - startPct) * state.gameDuration;
-    const v = curveValue(elapsed);
-    const x = toCanvasX(pct);
-    const y = toCanvasY(v);
-    if (i === 0) ctx.moveTo(x, y);
-    else ctx.lineTo(x, y);
-  }
-  ctx.strokeStyle = THEME.curve;
-  ctx.lineWidth = 4;
-  ctx.stroke();
-
-  const endV = curveValue((endPct - startPct) * state.gameDuration);
-  const endX = toCanvasX(endPct);
-  const endY = toCanvasY(endV);
-  ctx.beginPath();
-  ctx.arc(endX, endY, 5, 0, Math.PI * 2);
-  ctx.fillStyle = THEME.bg;
-  ctx.fill();
-  ctx.lineWidth = 2;
-  ctx.strokeStyle = THEME.curve;
-  ctx.stroke();
-
-  if (reign.end !== null) {
-    const floorY = toCanvasY(state.floorAmount || 0);
-    drawLine(endX, endY, endX, floorY, 'rgba(255,255,255,0.6)', 2, [3, 3]);
-    ctx.beginPath();
-    ctx.moveTo(endX, endY);
-    ctx.lineTo(endX, floorY + 4);
-    ctx.strokeStyle = 'rgba(255,255,255,0.7)';
-    ctx.lineWidth = 2;
-    ctx.stroke();
-  }
-}
-
-function drawCurrentKing() {
-  const reign = state.reigns[state.reigns.length - 1];
-  if (!reign) return;
-  const startPct = timePct(reign.start);
-  const currentPct = currentTimePct();
-  const v = curveValue((currentPct - startPct) * state.gameDuration);
-  const x = toCanvasX(currentPct);
-  const y = toCanvasY(v);
-
-  function drawStar(cx, cy, outer, inner, points) {
-    ctx.beginPath();
-    for (let i = 0; i < points * 2; i++) {
-      const r = i % 2 === 0 ? outer : inner;
-      const a = (Math.PI / points) * i - Math.PI / 2;
-      const px = cx + Math.cos(a) * r;
-      const py = cy + Math.sin(a) * r;
-      if (i === 0) ctx.moveTo(px, py);
-      else ctx.lineTo(px, py);
-    }
-    ctx.closePath();
-    ctx.fillStyle = '#fff';
-    ctx.fill();
-  }
-  drawStar(x, y, 14, 7, 5);
-
-  const floorY = toCanvasY(state.floorAmount || 0);
-  drawLine(x, y + 12, x, floorY, THEME.curve, 2, [5, 5]);
-}
-
-function drawReferenceLines() {
-  const w = canvasBounds.width / canvasBounds.dpr;
-  const floorY = toCanvasY(state.floorAmount || 0);
-  const maxY = toCanvasY(state.maxAmount || 200);
-
-  drawLine(PAD.left, floorY, w - PAD.right, floorY, THEME.grid, 2);
-  drawLine(PAD.left, maxY, w - PAD.right, maxY, THEME.grid, 2, [6, 6]);
-  drawText('FLOOR', PAD.left + 6, floorY - 8, { color: THEME.textSecondary, font: 'bold 10px "JetBrains Mono", monospace' });
-  drawText('MAX PRIZE', PAD.left + 6, maxY - 8, { color: THEME.textSecondary, font: 'bold 10px "JetBrains Mono", monospace' });
-}
-
-function drawViz() {
-  const w = canvasBounds.width / canvasBounds.dpr;
-  const h = canvasBounds.height / canvasBounds.dpr;
-  ctx.clearRect(0, 0, w, h);
-
-  drawReferenceLines();
-  drawAxes();
-
-  for (const reign of state.reigns || []) {
-    drawReign(reign);
-  }
-
-  drawCurrentKing();
-}
-
-function resizeViz() {
-  setupCanvas();
-  drawViz();
-}
-
-window.addEventListener('resize', resizeViz);
-
-// ── WebGL background ─────────────────────────────────────
+// ── WebGL Background ─────────────────────────────────────
 function initBackground() {
-  const canvas = document.getElementById('gl');
+  const canvas = $('#gl');
   if (!canvas) return;
   const gl = canvas.getContext('webgl', { alpha: true, antialias: false, premultipliedAlpha: false });
   if (!gl) return;
@@ -429,7 +106,7 @@ function initBackground() {
     void main() {
       vec2 uv = gl_FragCoord.xy / uRes;
       vec2 mouse = uMouse / uRes;
-      vec3 col = vec3(0.031, 0.02, 0.039);
+      vec3 col = vec3(0.02, 0.012, 0.025);
       float t = uTime * 0.03;
       col += vec3(0.06, 0.02, 0.07) * sin(uv.y * 2.0 + uv.x * 0.8 + t);
       col += vec3(0.03, 0.015, 0.05) * cos(uv.x * 1.5 - uv.y * 1.2 + t * 0.6);
@@ -462,7 +139,7 @@ function initBackground() {
   gl.attachShader(prog, fs);
   gl.linkProgram(prog);
   if (!gl.getProgramParameter(prog, gl.LINK_STATUS)) {
-    console.warn('Program link failed:', gl.getProgramInfoLog(prog));
+    console.warn('Program link failed:', gl.getShaderInfoLog(prog));
     return;
   }
   gl.useProgram(prog);
@@ -503,166 +180,605 @@ function initBackground() {
   frame();
 }
 
-// ── Contract data loading ────────────────────────────────
-async function buildReignsFromEvents() {
-  const shots = await contract.queryFilter('Shot');
-  shots.sort((a, b) => Number(a.args.sequence) - Number(b.args.sequence));
+// ── Prize Curve Canvas ────────────────────────────────────
+function drawCurve(startTime, deadline, originalDeadline, floorAmount, maxAmount, currentPrize, exponent, reigns, paidAmount, ended) {
+  const canvas = $('#prize-canvas');
+  if (!canvas) return;
+  const ctx = canvas.getContext('2d');
+  const dpr = window.devicePixelRatio || 1;
+  const rect = canvas.getBoundingClientRect();
+  canvas.width = rect.width * dpr;
+  canvas.height = rect.height * dpr;
+  ctx.scale(dpr, dpr);
+  const W = rect.width;
+  const H = rect.height;
+  const pad = { top: 24, right: 20, bottom: 28, left: 52 };
+  const plotW = W - pad.left - pad.right;
+  const plotH = H - pad.top - pad.bottom;
 
-  const reigns = [];
-  let lastStart = state.startTime;
-  let lastHolder = EMPTY_ADDRESS;
+  ctx.clearRect(0, 0, W, H);
 
-  for (const shot of shots) {
-    const capturedAt = Number(shot.args.captured_at);
-    const previousKing = shot.args.previous_king.toLowerCase();
+  const yMax = Math.max(maxAmount, currentPrize, paidAmount || 0) * 1.1 || 1;
+  const totalDuration = Math.max(1, deadline - startTime);
+  const originalDuration = originalDeadline > startTime ? originalDeadline - startTime : totalDuration;
+  const gameDuration = state.gameDuration || originalDuration;
+  const capTs = originalDeadline > startTime ? originalDeadline : deadline;
 
-    if (previousKing !== EMPTY_ADDRESS) {
-      reigns.push({ start: lastStart, end: capturedAt, player: previousKing });
+  const toX = (ts) => pad.left + ((ts - startTime) / totalDuration) * plotW;
+  const toY = (val) => pad.top + plotH - ((val / yMax) * plotH);
+  const clampedElapsed = (ts, reignStart) => Math.max(0, Math.min(ts, capTs) - reignStart);
+
+  // Grid lines
+  ctx.strokeStyle = 'rgba(255,251,245,0.04)';
+  ctx.lineWidth = 1;
+  const gridSteps = 4;
+  for (let i = 0; i <= gridSteps; i++) {
+    const y = pad.top + (plotH / gridSteps) * i;
+    ctx.beginPath();
+    ctx.moveTo(pad.left, y);
+    ctx.lineTo(W - pad.right, y);
+    ctx.stroke();
+
+    const val = yMax - (yMax / gridSteps) * i;
+    ctx.fillStyle = 'rgba(255,251,245,0.25)';
+    ctx.font = '11px "JetBrains Mono", monospace';
+    ctx.textAlign = 'right';
+    ctx.textBaseline = 'middle';
+    let label;
+    if (val === 0) label = '0';
+    else if (val < 1) label = val.toFixed(2);
+    else if (val < 1000) label = val.toFixed(0);
+    else label = `${(val / 1000).toFixed(1)}k`;
+    ctx.fillText(label, pad.left - 8, y);
+  }
+
+  // Axes
+  ctx.strokeStyle = 'rgba(255,251,245,0.2)';
+  ctx.lineWidth = 1;
+  ctx.beginPath();
+  ctx.moveTo(pad.left, pad.top);
+  ctx.lineTo(pad.left, pad.top + plotH);
+  ctx.lineTo(W - pad.right, pad.top + plotH);
+  ctx.stroke();
+
+  // X labels
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'top';
+  for (let i = 0; i <= 4; i++) {
+    const pct = i / 4;
+    const x = pad.left + pct * plotW;
+    ctx.fillStyle = 'rgba(255,251,245,0.25)';
+    ctx.fillText(`${Math.round(pct * 100)}%`, x, H - pad.bottom + 10);
+  }
+
+  // Reference lines
+  const floorY = toY(floorAmount);
+  ctx.beginPath();
+  ctx.setLineDash([4, 4]);
+  ctx.moveTo(pad.left, floorY);
+  ctx.lineTo(W - pad.right, floorY);
+  ctx.strokeStyle = 'rgba(255, 123, 0, 0.3)';
+  ctx.lineWidth = 1;
+  ctx.stroke();
+  ctx.setLineDash([]);
+
+  const maxY = toY(maxAmount);
+  ctx.beginPath();
+  ctx.setLineDash([6, 6]);
+  ctx.moveTo(pad.left, maxY);
+  ctx.lineTo(W - pad.right, maxY);
+  ctx.strokeStyle = 'rgba(255, 251, 245, 0.12)';
+  ctx.lineWidth = 1;
+  ctx.stroke();
+  ctx.setLineDash([]);
+
+  ctx.fillStyle = 'rgba(255,251,245,0.25)';
+  ctx.font = 'bold 10px "JetBrains Mono", monospace';
+  ctx.textAlign = 'left';
+  ctx.fillText('FLOOR', pad.left + 6, floorY - 8);
+  ctx.fillText('MAX', pad.left + 6, maxY - 8);
+
+  // Overtime shading (drawn behind reign lines)
+  let originalX = null;
+  if (originalDeadline > startTime && originalDeadline < deadline) {
+    originalX = toX(originalDeadline);
+    ctx.fillStyle = 'rgba(255, 123, 0, 0.05)';
+    ctx.fillRect(originalX, pad.top, (W - pad.right) - originalX, plotH);
+  }
+
+  // Ghost curve: shows prize growth before the first shot
+  let liveReigns = reigns || [];
+  let isGhost = false;
+  if (liveReigns.length === 0 && state.started && !state.ended && startTime > 0) {
+    const nowTs = Math.min(nowSeconds(), deadline);
+    if (nowTs > startTime) {
+      liveReigns = [{ start: startTime, end: nowTs, player: null }];
+      isGhost = true;
     }
-
-    lastStart = capturedAt;
-    lastHolder = shot.args.player.toLowerCase();
   }
 
-  if (state.currentHolder && state.currentHolder !== EMPTY_ADDRESS) {
-    reigns.push({ start: lastStart, end: null, player: state.currentHolder });
-  }
+  if (liveReigns.length === 0) return;
 
-  return reigns;
+  // Gradient fill under each reign segment
+  const gradient = ctx.createLinearGradient(0, pad.top, 0, pad.top + plotH);
+  gradient.addColorStop(0, 'rgba(255, 123, 0, 0.60)');
+  gradient.addColorStop(1, 'rgba(255, 123, 0, 0.12)');
+
+  liveReigns.forEach((reign) => {
+    const startX = toX(reign.start);
+    const endX = toX(reign.end);
+    ctx.beginPath();
+    ctx.moveTo(startX, floorY);
+    const steps = 40;
+    for (let i = 0; i <= steps; i++) {
+      const ts = reign.start + ((reign.end - reign.start) * i) / steps;
+      const elapsed = clampedElapsed(ts, reign.start);
+      const val = curveValue(elapsed, floorAmount, maxAmount, gameDuration, exponent);
+      ctx.lineTo(toX(ts), toY(val));
+    }
+    ctx.lineTo(endX, floorY);
+    ctx.closePath();
+    ctx.fillStyle = gradient;
+    ctx.fill();
+  });
+
+  // Draw each reign line
+  liveReigns.forEach((reign, idx) => {
+    const startX = toX(reign.start);
+    const endX = toX(reign.end);
+
+    ctx.beginPath();
+    ctx.strokeStyle = isGhost ? 'rgba(255, 123, 0, 0.55)' : '#ff7b00';
+    ctx.lineWidth = 2.5;
+    if (isGhost) ctx.setLineDash([6, 4]);
+    const steps = 60;
+    for (let i = 0; i <= steps; i++) {
+      const ts = reign.start + ((reign.end - reign.start) * i) / steps;
+      const elapsed = clampedElapsed(ts, reign.start);
+      const val = curveValue(elapsed, floorAmount, maxAmount, gameDuration, exponent);
+      const x = toX(ts);
+      const y = toY(val);
+      if (i === 0) ctx.moveTo(x, y);
+      else ctx.lineTo(x, y);
+    }
+    ctx.stroke();
+    ctx.setLineDash([]);
+
+    // End marker + drop line for non-current reigns
+    if (idx < liveReigns.length - 1) {
+      const endY = toY(curveValue(clampedElapsed(reign.end, reign.start), floorAmount, maxAmount, gameDuration, exponent));
+      ctx.beginPath();
+      ctx.arc(endX, endY, 4, 0, Math.PI * 2);
+      ctx.fillStyle = '#08050a';
+      ctx.fill();
+      ctx.lineWidth = 2;
+      ctx.strokeStyle = '#ff7b00';
+      ctx.stroke();
+
+      ctx.beginPath();
+      ctx.setLineDash([3, 3]);
+      ctx.moveTo(endX, endY);
+      ctx.lineTo(endX, floorY);
+      ctx.strokeStyle = 'rgba(255, 255, 255, 0.4)';
+      ctx.lineWidth = 1;
+      ctx.stroke();
+      ctx.setLineDash([]);
+    }
+  });
+
+  // Current king star
+  const lastReign = liveReigns[liveReigns.length - 1];
+  const now = ended ? deadline : Math.min(nowSeconds(), deadline);
+  const markerTs = Math.min(Math.max(now, lastReign.start), deadline);
+  const markerElapsed = clampedElapsed(markerTs, lastReign.start);
+  const markerVal = ended && paidAmount > 0
+    ? paidAmount
+    : curveValue(markerElapsed, floorAmount, maxAmount, gameDuration, exponent);
+  const markerX = toX(markerTs);
+  const markerY = toY(markerVal);
+
+  function drawStar(cx, cy, outer, inner, points) {
+    ctx.beginPath();
+    for (let i = 0; i < points * 2; i++) {
+      const r = i % 2 === 0 ? outer : inner;
+      const a = (Math.PI / points) * i - Math.PI / 2;
+      const px = cx + Math.cos(a) * r;
+      const py = cy + Math.sin(a) * r;
+      if (i === 0) ctx.moveTo(px, py);
+      else ctx.lineTo(px, py);
+    }
+    ctx.closePath();
+    ctx.fillStyle = '#fff';
+    ctx.fill();
+  }
+  drawStar(markerX, markerY, 10, 5, 5);
+
+  // Vertical guide line
+  ctx.beginPath();
+  ctx.setLineDash([5, 5]);
+  ctx.moveTo(markerX, markerY + 10);
+  ctx.lineTo(markerX, floorY);
+  ctx.strokeStyle = 'rgba(255, 123, 0, 0.4)';
+  ctx.lineWidth = 1;
+  ctx.stroke();
+  ctx.setLineDash([]);
+
+  // Original deadline marker + label (drawn on top)
+  if (originalX != null) {
+    ctx.beginPath();
+    ctx.setLineDash([3, 3]);
+    ctx.moveTo(originalX, pad.top);
+    ctx.lineTo(originalX, pad.top + plotH);
+    ctx.strokeStyle = 'rgba(255, 123, 0, 0.55)';
+    ctx.lineWidth = 1;
+    ctx.stroke();
+    ctx.setLineDash([]);
+
+    ctx.fillStyle = 'rgba(255, 123, 0, 0.65)';
+    ctx.font = 'bold 9px "JetBrains Mono", monospace';
+    ctx.textAlign = 'left';
+    ctx.textBaseline = 'bottom';
+    ctx.fillText('OVERTIME →', originalX + 4, pad.top + plotH - 4);
+  }
 }
 
-async function fetchContractState() {
-  const tokenAddress = await contract.token();
-  if (tokenAddress && tokenAddress !== EMPTY_ADDRESS && (!tokenContract || tokenContract.target !== tokenAddress)) {
-    tokenContract = new ethers.Contract(tokenAddress, ERC20_ABI, provider);
-    try {
-      tokenDecimals = Number(await tokenContract.decimals());
-      state.tokenSymbol = await tokenContract.symbol();
-    } catch {
-      tokenDecimals = 18;
-      state.tokenSymbol = '';
-    }
-  }
+// ── Data Fetching ─────────────────────────────────────────
+async function refresh() {
+  if (!contract) return;
 
   const [
     startTime,
     deadline,
+    gameDuration,
     maxAmount,
     floorAmount,
+    remainingAmount,
+    originalDeadline,
+    maxDeadline,
     curveExponent,
     maxShots,
     king,
     kingSince,
-    remainingAmount,
+    shotSequence,
     kingPrize,
+    paidAmount,
     funded,
     started,
     ended,
     winner,
-    paidAmount,
+    tokenAddr,
   ] = await Promise.all([
-    contract.start_time(),
-    contract.deadline(),
-    contract.max_amount(),
-    contract.floor_amount(),
-    contract.curve_exponent(),
-    contract.max_shots(),
-    contract.king(),
-    contract.king_since(),
-    contract.remaining_amount(),
-    contract.king_prize(),
-    contract.funded(),
-    contract.started(),
-    contract.ended(),
-    contract.winner(),
-    contract.paid_amount(),
+    call(contract, 'start_time'),
+    call(contract, 'deadline'),
+    call(contract, 'game_duration'),
+    call(contract, 'max_amount'),
+    call(contract, 'floor_amount'),
+    call(contract, 'remaining_amount'),
+    call(contract, 'original_deadline'),
+    call(contract, 'max_deadline'),
+    call(contract, 'curve_exponent'),
+    call(contract, 'max_shots'),
+    call(contract, 'king'),
+    call(contract, 'king_since'),
+    call(contract, 'shot_sequence'),
+    call(contract, 'king_prize'),
+    call(contract, 'paid_amount'),
+    call(contract, 'funded'),
+    call(contract, 'started'),
+    call(contract, 'ended'),
+    call(contract, 'winner'),
+    call(contract, 'token'),
   ]);
 
-  state.startTime = Number(startTime);
-  state.deadline = Number(deadline);
-  state.gameDuration = state.deadline - state.startTime;
-  state.maxAmount = Number(ethers.formatUnits(maxAmount, tokenDecimals));
-  state.floorAmount = Number(ethers.formatUnits(floorAmount, tokenDecimals));
-  state.curveExponent = Number(curveExponent);
-  state.maxShots = Number(maxShots);
-  state.prizePool = remainingAmount;
-  state.currentHolder = king.toLowerCase();
-  state.kingSince = Number(kingSince);
-  state.currentPrize = kingPrize;
-  state.funded = funded;
-  state.started = started;
-  state.ended = ended;
-  state.winner = winner.toLowerCase() === EMPTY_ADDRESS ? null : winner.toLowerCase();
-  state.paidAmount = paidAmount;
-
-  state.reigns = await buildReignsFromEvents();
-}
-
-function animate() {
-  renderStats();
-  drawViz();
-  if (stateDirty) {
-    renderHistory();
-    stateDirty = false;
+  if (tokenAddr && tokenAddr !== EMPTY_ADDRESS && (!tokenContract || tokenContract.target !== tokenAddr)) {
+    tokenContract = new ethers.Contract(tokenAddr, ERC20_ABI, provider);
   }
-  requestAnimationFrame(animate);
-}
+  let decimals = 18;
+  let symbol = '';
+  if (tokenContract) {
+    try { decimals = Number(await tokenContract.decimals()); } catch {}
+    try { symbol = await tokenContract.symbol(); } catch {}
+  }
 
-function reignsKey(reigns) {
-  return JSON.stringify((reigns || []).map((r) => [r.start, r.end, r.player]));
-}
+  state.tokenDecimals = decimals;
+  state.tokenSymbol = symbol;
 
-async function tick() {
-  if (useMock) return;
-  try {
-    const before = reignsKey(state.reigns);
-    await fetchContractState();
-    const after = reignsKey(state.reigns);
-    if (before !== after) {
-      stateDirty = true;
+  const prizePoolRaw = maxAmount || 0n;
+  const floorRaw = floorAmount || 0n;
+  const paidRaw = paidAmount || 0n;
+
+  state.prizePoolRaw = prizePoolRaw;
+  state.remainingAmountRaw = remainingAmount || 0n;
+  state.maxAmountRaw = prizePoolRaw;
+  state.floorRaw = floorRaw;
+  state.paidAmountRaw = paidRaw;
+  state.gameDuration = Number(gameDuration || 0) || (state.originalDeadline > state.startTime ? state.originalDeadline - state.startTime : 0);
+  state.curveExponent = Number(curveExponent || 1);
+  state.startTime = Number(startTime || 0);
+  state.deadline = Number(deadline || 0);
+  state.originalDeadline = Number(originalDeadline || 0);
+  state.maxDeadline = Number(maxDeadline || 0);
+  state.started = !!started;
+  state.funded = !!funded;
+  state.ended = !!ended;
+  state.currentHolder = king && king !== EMPTY_ADDRESS ? king.toLowerCase() : null;
+  state.kingSince = kingSince ? Number(kingSince) : 0;
+  state.winner = winner && winner !== EMPTY_ADDRESS ? winner.toLowerCase() : null;
+  state.shotSequence = shotSequence != null ? Number(shotSequence) : 0;
+
+  const now = nowSeconds();
+  const timeLeft = Math.max(0, state.deadline - now);
+  const prizePoolHuman = Number(prizePoolRaw) / Math.pow(10, decimals);
+  const maxAmountHuman = Number(state.maxAmountRaw) / Math.pow(10, decimals);
+  const floorHuman = Number(floorRaw) / Math.pow(10, decimals);
+  const paidHuman = Number(paidRaw) / Math.pow(10, decimals);
+
+  // Status
+  let statusText = '—';
+  if (state.ended) statusText = 'Ended';
+  else if (!state.funded) statusText = 'Not funded';
+  else if (!state.started) statusText = 'Funded · not started';
+  else if (timeLeft === 0) statusText = 'Expired · awaiting finalization';
+  else statusText = 'Live';
+
+  const statusEl = $('#status');
+  statusEl.textContent = statusText;
+  statusEl.classList.toggle('live', statusText === 'Live');
+
+  // Stats
+  $('#pool').textContent = state.prizePoolRaw != null ? formatToken(state.prizePoolRaw) : '—';
+  $('#floor').textContent = state.floorRaw != null ? formatToken(state.floorRaw) : '—';
+  $('#max-shots').textContent = maxShots != null ? Number(maxShots).toString() : '—';
+  $('#timer').textContent = state.ended ? 'Ended' : formatDuration(timeLeft);
+  $('#game-start').textContent = state.startTime ? fmtTime(state.startTime) : '—';
+
+  // Current / winner prize
+  let currentPrizeHuman = 0;
+  if (state.ended && state.paidAmountRaw && state.paidAmountRaw > 0n) {
+    currentPrizeHuman = paidHuman;
+  } else if (state.currentHolder && state.kingSince && state.started && !state.ended) {
+    const cap = state.originalDeadline > state.kingSince ? state.originalDeadline : state.deadline;
+    const elapsed = Math.min(now, cap) - state.kingSince;
+    currentPrizeHuman = curveValue(elapsed, floorHuman, maxAmountHuman, state.gameDuration, state.curveExponent);
+  }
+  $('#prize').textContent = currentPrizeHuman > 0
+    ? `${currentPrizeHuman.toLocaleString(undefined, { maximumFractionDigits: 4 })} ${symbol}`.trim()
+    : '—';
+  $('#prize-label').textContent = state.ended ? 'Winner Prize' : 'Current Reign Prize';
+
+  // King / winner card
+  const displayHolder = state.ended && state.winner ? state.winner : state.currentHolder;
+  const heading = state.ended ? (state.winner ? 'Winner' : 'No Winner') : 'Current King';
+  $('#king-heading').textContent = heading;
+  $('#king').textContent = addrShort(displayHolder);
+  $('#king-since-label').textContent = state.ended ? 'Won At' : 'Captured';
+  $('#king-since').textContent = state.kingSince ? fmtTime(state.kingSince) : '—';
+
+  const heldStart = state.kingSince || state.startTime;
+  const heldEnd = state.ended ? state.deadline : now;
+  const heldSeconds = Math.max(0, heldEnd - heldStart);
+  $('#king-held-label').textContent = state.ended ? 'Held For' : 'Time Held';
+  $('#king-held').textContent = heldSeconds > 0 ? formatDuration(heldSeconds) : '—';
+
+  // Build reigns from Shot events
+  const shots = await call(contract, 'queryFilter', 'Shot');
+  const reigns = [];
+  if (shots && shots.length > 0) {
+    shots.sort((a, b) => Number(a.args.sequence) - Number(b.args.sequence));
+    let lastStart = state.startTime;
+    for (const shot of shots) {
+      const capturedAt = Number(shot.args.captured_at);
+      reigns.push({ start: lastStart, end: capturedAt, player: shot.args.player.toLowerCase() });
+      lastStart = capturedAt;
     }
-  } catch (err) {
-    console.error('Failed to fetch contract state:', err);
+    if (state.currentHolder) {
+      reigns.push({ start: lastStart, end: state.ended ? state.deadline : now, player: state.currentHolder });
+    }
+  } else if (state.currentHolder) {
+    reigns.push({ start: state.kingSince, end: state.ended ? state.deadline : now, player: state.currentHolder });
+  }
+
+  drawCurve(
+    state.startTime,
+    state.deadline,
+    state.originalDeadline,
+    floorHuman,
+    maxAmountHuman,
+    currentPrizeHuman,
+    state.curveExponent,
+    reigns,
+    paidHuman,
+    state.ended
+  );
+
+  renderHistory(shots);
+
+  if (lastShotSequence > 0 && state.shotSequence > lastShotSequence) {
+    triggerCrownAnimation();
+  }
+  lastShotSequence = state.shotSequence;
+}
+
+async function call(contractObj, fn, ...args) {
+  try {
+    return await contractObj[fn](...args);
+  } catch {
+    return null;
   }
 }
 
+function prizeAtElapsed(elapsed) {
+  const floor = state.floorRaw || 0n;
+  const max = state.maxAmountRaw || 0n;
+  const duration = state.gameDuration || 0;
+  const exponent = state.curveExponent || 1;
+  if (!duration || elapsed <= 0) return floor;
+  const p = Math.min(elapsed / duration, 1);
+  let factor = p;
+  if (exponent === 2) factor = p * p;
+  else if (exponent === 3) factor = p * p * p;
+  const raw = Number(floor) + (Number(max) - Number(floor)) * factor;
+  return BigInt(Math.round(raw));
+}
+
+function renderHistory(shots) {
+  const tbody = $('#history-body');
+  if (!tbody) return;
+
+  const rows = [];
+
+  const capTs = state.originalDeadline > state.startTime ? state.originalDeadline : state.deadline;
+
+  const isOt = (ts) => state.originalDeadline > 0 && ts > state.originalDeadline;
+
+  // Live current reign
+  if (state.currentHolder && !state.ended && state.kingSince) {
+    const nowTs = nowSeconds();
+    const elapsed = Math.max(0, Math.min(nowTs, capTs) - state.kingSince);
+    const prizeRaw = elapsed > 0 ? prizeAtElapsed(elapsed) : (state.floorRaw || 0n);
+    rows.push({ time: 'now', player: state.currentHolder, prizeRaw, current: true, ot: isOt(nowTs) });
+  }
+
+  // Completed reigns from Shot events
+  if (shots && shots.length > 0) {
+    const sorted = shots.slice().sort((a, b) => Number(a.args.sequence) - Number(b.args.sequence));
+    for (let i = sorted.length - 1; i >= Math.max(0, sorted.length - 10); i--) {
+      const s = sorted[i];
+      const capturedAt = Number(s.args.captured_at);
+      const reignStart = i === 0 ? state.startTime : Number(sorted[i - 1].args.captured_at);
+      const elapsed = Math.max(0, Math.min(capturedAt, capTs) - reignStart);
+      const prizeRaw = elapsed > 0 ? prizeAtElapsed(elapsed) : (state.floorRaw || 0n);
+      rows.push({ time: fmtTime(capturedAt), player: s.args.player.toLowerCase(), prizeRaw, current: false, ot: isOt(capturedAt) });
+    }
+  }
+
+  if (rows.length === 0) {
+    tbody.innerHTML = '<tr class="history-empty"><td colspan="3">No captures yet.</td></tr>';
+    return;
+  }
+
+  tbody.innerHTML = rows.slice(0, 10).map((r) => `
+    <tr${r.current ? ' class="current-king-row"' : ''}>
+      <td>${r.time}${r.ot ? ' <span class="ot-badge">OT</span>' : ''}</td>
+      <td>${r.current ? '<span class="king-dot">♔</span> ' : ''}${addrShort(r.player)}</td>
+      <td class="history-prize">${formatToken(r.prizeRaw)}</td>
+    </tr>
+  `).join('');
+}
+
+// ── Mock Mode ─────────────────────────────────────────────
+function useMockData() {
+  useMock = true;
+
+  const now = nowSeconds();
+  state.tokenSymbol = 'ETH';
+  state.tokenDecimals = 18;
+  state.floorRaw = 5000000000000000000n;
+  state.maxAmountRaw = 25000000000000000000n;
+  state.prizePoolRaw = state.maxAmountRaw;
+  state.paidAmountRaw = 0n;
+  state.curveExponent = 2;
+  state.started = true;
+  state.funded = true;
+  state.ended = false;
+  state.winner = null;
+  state.shotSequence = 8;
+
+  const mockStart = now - 3600 * 6;
+  const mockDeadline = now + 3600 * 18;
+  state.startTime = mockStart;
+  state.deadline = mockDeadline;
+  state.gameDuration = mockDeadline - mockStart;
+  state.kingSince = mockStart + Math.floor(0.8 * state.gameDuration);
+  state.currentHolder = '0xAbCDEF1234567890abcdef1234567890ABCDEF12'.toLowerCase();
+
+  $('#status').textContent = 'Live';
+  $('#status').classList.add('live');
+  $('#pool').textContent = '25 ETH';
+  $('#floor').textContent = '5 ETH';
+  $('#max-shots').textContent = '5';
+  $('#timer').textContent = formatDuration(state.deadline - now);
+  $('#game-start').textContent = fmtTime(mockStart);
+  $('#prize-label').textContent = 'Current Reign Prize';
+  $('#prize').textContent = '12.45 ETH';
+  $('#king-heading').textContent = 'Current King';
+  $('#king').textContent = addrShort(state.currentHolder);
+  $('#king-since-label').textContent = 'Captured';
+  $('#king-since').textContent = fmtTime(state.kingSince);
+  $('#king-held-label').textContent = 'Time Held';
+  $('#king-held').textContent = formatDuration(now - state.kingSince);
+
+  const mockShots = [];
+  const mockReigns = [];
+  let lastStart = mockStart;
+  for (let i = 0; i < 8; i++) {
+    const capturedAt = mockStart + (i + 1) * 3600 * 0.7;
+    const addr = `0x${String(i + 1).repeat(40)}`;
+    mockShots.push({ args: { sequence: i + 1, player: addr, captured_at: capturedAt } });
+    mockReigns.push({ start: lastStart, end: capturedAt, player: addr });
+    lastStart = capturedAt;
+  }
+  mockReigns.push({ start: lastStart, end: now, player: state.currentHolder });
+
+  drawCurve(mockStart, mockDeadline, mockDeadline, 5, 25, 12.45, 2, mockReigns, 0, false);
+
+  renderHistory(mockShots);
+}
+
+function triggerCrownAnimation() {
+  const wrap = $('#crownWrap');
+  const activeCrown = $('#activeCrown');
+  const newCrown = $('#newCrown');
+  if (!wrap || !activeCrown || !newCrown || wrap.classList.contains('animating')) return;
+
+  newCrown.style.opacity = '0';
+  newCrown.style.transform = 'translateY(8px) scale(0.9)';
+  wrap.querySelectorAll('.fragment').forEach((f) => {
+    f.style.opacity = '0';
+    f.style.transform = 'translate(0,0) rotate(0deg) scale(1)';
+  });
+  activeCrown.style.opacity = '1';
+  activeCrown.style.transform = 'none';
+
+  wrap.classList.add('animating');
+  setTimeout(() => {
+    wrap.classList.remove('animating');
+    activeCrown.style.opacity = '1';
+    activeCrown.style.transform = 'none';
+    newCrown.style.opacity = '0';
+    newCrown.style.transform = 'translateY(8px) scale(0.9)';
+  }, 1200);
+}
+
+// ── Init ──────────────────────────────────────────────────
 async function init() {
+  initBackground();
+
+  let config;
   try {
     const { config: cfg, abi } = await loadConfig();
     config = cfg;
-
-    const linkEl = document.getElementById('basescan-link');
-    if (linkEl && config.contractAddress) {
-      const explorerBase = config.chainId === 84532
-        ? 'https://sepolia.basescan.org'
-        : 'https://basescan.org';
-      linkEl.href = `${explorerBase}/address/${config.contractAddress}`;
-    }
-
     const rpcUrl = new URL(config.rpcProxyUrl, window.location.href).toString();
     provider = new ethers.JsonRpcProvider(rpcUrl);
     contract = new ethers.Contract(config.contractAddress, abi, provider);
 
+    // Verify connection
     await contract.start_time();
-    console.log('Connected to contract', config.contractAddress);
+
+    // Set Basescan link
+    const link = $('#basescan-link');
+    if (link && config.contractAddress) {
+      const base = config.chainId === 84532 ? 'https://sepolia.basescan.org' : 'https://basescan.org';
+      link.href = `${base}/address/${config.contractAddress}`;
+    }
   } catch (err) {
-    console.warn('Running in mock mode:', err.message);
-    useMock = true;
-    state = buildMockState();
+    console.warn('Live contract unavailable, using mock:', err.message);
+    useMockData();
+    return;
   }
 
-  await tick();
-  renderHistory();
-  setupCanvas();
-  drawViz();
-  animate();
-  setInterval(tick, 1000);
-
-  try {
-    initBackground();
-  } catch (err) {
-    console.warn('Background init failed:', err);
-  }
+  await refresh();
+  refreshTimer = setInterval(refresh, REFRESH_INTERVAL);
 }
 
-init();
+document.addEventListener('DOMContentLoaded', init);

@@ -1,4 +1,4 @@
-// Cloudflare Worker that proxies the King of the Hill v4 read-only RPC API.
+// Cloudflare Worker that proxies the King of the Hill v5 read-only RPC API.
 //
 // Deploy this Worker and route `/api/*` for your chosen domain/path
 // to it. The static frontend stays on Cloudflare Pages and calls `/api/config`
