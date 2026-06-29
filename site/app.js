@@ -204,7 +204,10 @@ function drawCurve(startTime, deadline, originalDeadline, floorAmount, maxAmount
   const gameDuration = state.gameDuration || originalDuration;
   const capTs = originalDeadline > startTime ? originalDeadline : deadline;
 
-  const toX = (ts) => pad.left + ((ts - startTime) / totalDuration) * plotW;
+  const toX = (ts) => {
+    const x = pad.left + ((ts - startTime) / totalDuration) * plotW;
+    return Math.max(pad.left, Math.min(W - pad.right, x));
+  };
   const toY = (val) => pad.top + plotH - ((val / yMax) * plotH);
   const clampedElapsed = (ts, reignStart) => Math.max(0, Math.min(ts, capTs) - reignStart);
 
@@ -567,6 +570,7 @@ async function refresh() {
   // Build reigns from Shot events
   const shots = await call(contract, 'queryFilter', 'Shot');
   const reigns = [];
+  const reignEnd = state.ended ? state.deadline : Math.min(now, state.deadline);
   if (shots && shots.length > 0) {
     shots.sort((a, b) => Number(a.args.sequence) - Number(b.args.sequence));
     let lastStart = state.startTime;
@@ -576,10 +580,10 @@ async function refresh() {
       lastStart = capturedAt;
     }
     if (state.currentHolder) {
-      reigns.push({ start: lastStart, end: state.ended ? state.deadline : now, player: state.currentHolder });
+      reigns.push({ start: lastStart, end: reignEnd, player: state.currentHolder });
     }
   } else if (state.currentHolder) {
-    reigns.push({ start: state.kingSince, end: state.ended ? state.deadline : now, player: state.currentHolder });
+    reigns.push({ start: state.kingSince, end: reignEnd, player: state.currentHolder });
   }
 
   drawCurve(
