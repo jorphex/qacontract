@@ -13,7 +13,7 @@ let useMock = false;
 let state = {};
 let refreshTimer = null;
 let lastShotSequence = 0;
-const REFRESH_INTERVAL = 2000;
+const REFRESH_INTERVAL = 1000;
 let currentInterval = REFRESH_INTERVAL;
 
 // ── Helpers ────────────────────────────────────────────────
@@ -828,19 +828,8 @@ function adjustRefreshInterval() {
     stopRefresh();
     return;
   }
-  const now = nowSeconds();
-  const timeLeft = Math.max(0, state.deadline - now);
-  const recentShot = lastShotSequence > 0 && state.shotSequence > lastShotSequence;
-  let nextInterval = REFRESH_INTERVAL;
-  if (timeLeft > 0 && timeLeft <= 60) {
-    nextInterval = 1000;
-  } else if (!state.started) {
-    nextInterval = 10000;
-  } else if (!recentShot) {
-    nextInterval = 3000;
-  }
-  if (nextInterval !== currentInterval) {
-    currentInterval = nextInterval;
+  if (currentInterval !== REFRESH_INTERVAL) {
+    currentInterval = REFRESH_INTERVAL;
     if (refreshTimer) {
       clearInterval(refreshTimer);
       refreshTimer = setInterval(refresh, currentInterval);
