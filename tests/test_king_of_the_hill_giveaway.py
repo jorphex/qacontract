@@ -4,7 +4,9 @@ from eth_utils import keccak
 
 AMOUNT = 1_000_000
 FLOOR = 100_000
-MAX_SHOTS = 5
+MAX_SHOTS = 3
+EXTENSION_WINDOW = 60
+MAX_OVERTIME = 300
 PROMPT = "What color is the candle?"
 ANSWER = "blue candle"
 WRONG_ANSWER = "red candle"
@@ -20,6 +22,8 @@ def deploy_game(
     chain,
     floor=FLOOR,
     deadline_offset=1_000,
+    extension_window=EXTENSION_WINDOW,
+    max_overtime=MAX_OVERTIME,
     max_shots=MAX_SHOTS,
     curve_exponent=2,
 ):
@@ -27,13 +31,15 @@ def deploy_game(
     refund_to = accounts[4]
     token = project.MockERC20.deploy("USD Coin", "USDC", 6, sender=creator)
     token.mint(creator, AMOUNT, sender=creator)
-    game = project.KingOfTheHillGiveaway.deploy(
+    game = project.KingOfTheHillGiveawayV5.deploy(
         token.address,
         refund_to.address,
         PROMPT,
         AMOUNT,
         floor,
         chain.pending_timestamp + deadline_offset,
+        extension_window,
+        max_overtime,
         max_shots,
         curve_exponent,
         keccak(text=ANSWER),
@@ -94,6 +100,91 @@ def test_shoot_captures_hill_and_uses_ammo(project, accounts, chain):
     assert game.king_prize() == FLOOR
     assert len(shots) == 1
     assert shots[0].player == player.address
+
+
+def test_late_shot_extends_deadline_without_refilling_ammo(
+    project, accounts, chain
+):
+    creator = accounts[0]
+    alice = accounts[1]
+    bob = accounts[2]
+    token, game = deploy_game(
+        project,
+        accounts,
+        chain,
+        deadline_offset=300,
+        extension_window=60,
+        max_overtime=180,
+        max_shots=1,
+    )
+    fund_and_start(token, game, creator)
+
+    original_deadline = game.original_deadline()
+    assert game.deadline() == original_deadline
+    assert game.max_deadline() == original_deadline + 180
+
+    game.shoot(ANSWER, sender=alice)
+    assert game.shots_remaining(alice) == 0
+
+    chain.pending_timestamp = original_deadline - 20
+    chain.mine()
+    receipt = game.shoot(ANSWER, sender=bob)
+    extensions = list(receipt.decode_logs(game.DeadlineExtended))
+
+    assert len(extensions) == 1
+    assert extensions[0].old_deadline == original_deadline
+    assert extensions[0].new_deadline == extensions[0].shot_time + 60
+    assert game.deadline() == extensions[0].shot_time + 60
+    assert game.is_active()
+
+    with ape.reverts("out of shots"):
+        game.shoot(ANSWER, sender=alice)
+
+    chain.pending_timestamp = original_deadline + 1
+    chain.mine()
+    with ape.reverts("not expired"):
+        game.finalize(sender=creator)
+
+    chain.pending_timestamp = game.deadline() + 1
+    chain.mine()
+    game.finalize(sender=creator)
+
+    assert game.ended()
+
+
+def test_late_shot_extensions_stop_at_max_deadline(project, accounts, chain):
+    creator = accounts[0]
+    token, game = deploy_game(
+        project,
+        accounts,
+        chain,
+        deadline_offset=300,
+        extension_window=60,
+        max_overtime=90,
+    )
+    fund_and_start(token, game, creator)
+    max_deadline = game.max_deadline()
+
+    for player in accounts[1:4]:
+        chain.pending_timestamp = game.deadline() - 20
+        chain.mine()
+        receipt = game.shoot(WRONG_ANSWER, sender=player)
+        extensions = list(receipt.decode_logs(game.DeadlineExtended))
+
+        if game.deadline() < max_deadline:
+            assert len(extensions) == 1
+            assert extensions[0].new_deadline == game.deadline()
+
+        assert game.deadline() <= max_deadline
+
+    assert game.deadline() == max_deadline
+
+    chain.pending_timestamp = max_deadline - 10
+    chain.mine()
+    receipt = game.shoot(WRONG_ANSWER, sender=accounts[4])
+
+    assert game.deadline() == max_deadline
+    assert list(receipt.decode_logs(game.DeadlineExtended)) == []
 
 
 def test_later_correct_reign_wins_even_if_final_king_is_wrong(
@@ -193,7 +284,10 @@ def test_correct_holder_resumes_banked_hold_after_recapture(
     chain.mine()
     game.finalize(sender=creator)
 
-    expected = expected_prize_for_hold(game, first_hold + (game.deadline() - second_start))
+    expected = expected_prize_for_hold(
+        game,
+        first_hold + (game.original_deadline() - second_start),
+    )
 
     assert game.winner() == alice.address
     assert game.paid_amount() == expected
@@ -272,6 +366,8 @@ def test_correct_shot_at_exact_deadline_wins_floor(project, accounts, chain):
     chain.pending_timestamp = game.deadline()
     game.shoot(ANSWER, sender=alice)
 
+    assert game.deadline() > game.original_deadline()
+
     chain.pending_timestamp = game.deadline() + 1
     game.finalize(sender=creator)
 
@@ -324,7 +420,7 @@ def test_wrong_shot_at_exact_deadline_does_not_erase_latest_correct_reign(
     chain.pending_timestamp = game.deadline()
     game.shoot(WRONG_ANSWER, sender=bob)
 
-    expected = expected_prize(game, alice_since, game.deadline())
+    expected = expected_prize(game, alice_since, game.original_deadline())
 
     chain.pending_timestamp = game.deadline() + 1
     game.finalize(sender=creator)
@@ -361,6 +457,82 @@ def test_late_correct_steal_resets_prize_growth(project, accounts, chain):
 
     assert game.winner() == bob.address
     assert game.paid_amount() < alice_current_prize
+
+
+def test_overtime_does_not_increase_prize_past_original_deadline(
+    project, accounts, chain
+):
+    creator = accounts[0]
+    alice = accounts[1]
+    token, game = deploy_game(
+        project,
+        accounts,
+        chain,
+        deadline_offset=300,
+        extension_window=60,
+        max_overtime=180,
+    )
+    fund_and_start(token, game, creator)
+
+    chain.pending_timestamp = game.start_time() + 100
+    chain.mine()
+    game.shoot(ANSWER, sender=alice)
+    first_start = game.king_since()
+
+    chain.pending_timestamp = game.original_deadline() - 10
+    chain.mine()
+    game.shoot(ANSWER, sender=alice)
+    first_hold = game.king_since() - first_start
+    second_start = game.king_since()
+    expected = expected_prize_for_hold(
+        game,
+        first_hold + (game.original_deadline() - second_start),
+    )
+
+    chain.pending_timestamp = game.original_deadline() + 30
+    chain.mine()
+    assert game.deadline() > game.original_deadline()
+    assert not game.is_expired()
+
+    chain.pending_timestamp = game.deadline() + 1
+    chain.mine()
+    game.finalize(sender=creator)
+
+    assert game.winner() == alice.address
+    assert game.paid_amount() == expected
+
+
+def test_correct_overtime_shot_can_win_floor_only(project, accounts, chain):
+    creator = accounts[0]
+    alice = accounts[1]
+    bob = accounts[2]
+    token, game = deploy_game(
+        project,
+        accounts,
+        chain,
+        deadline_offset=300,
+        extension_window=60,
+        max_overtime=180,
+    )
+    fund_and_start(token, game, creator)
+
+    chain.pending_timestamp = game.original_deadline() - 10
+    chain.mine()
+    game.shoot(WRONG_ANSWER, sender=alice)
+
+    chain.pending_timestamp = game.original_deadline() + 20
+    chain.mine()
+    assert game.is_active()
+    game.shoot(ANSWER, sender=bob)
+    assert game.king_prize() == FLOOR
+    assert game.prize_at(game.king_since(), chain.pending_timestamp) == FLOOR
+
+    chain.pending_timestamp = game.deadline() + 1
+    chain.mine()
+    game.finalize(sender=creator)
+
+    assert game.winner() == bob.address
+    assert game.paid_amount() == FLOOR
 
 
 def test_no_correct_reign_pays_no_one_and_allows_clawback(
@@ -455,15 +627,55 @@ def test_invalid_curve_exponent_reverts(project, accounts, chain):
     token = project.MockERC20.deploy("USD Coin", "USDC", 6, sender=creator)
 
     with ape.reverts("bad curve"):
-        project.KingOfTheHillGiveaway.deploy(
+        project.KingOfTheHillGiveawayV5.deploy(
             token.address,
             refund_to.address,
             PROMPT,
             AMOUNT,
             FLOOR,
             chain.pending_timestamp + 1_000,
+            EXTENSION_WINDOW,
+            MAX_OVERTIME,
             MAX_SHOTS,
             4,
+            keccak(text=ANSWER),
+            sender=creator,
+        )
+
+
+def test_invalid_overtime_settings_revert(project, accounts, chain):
+    creator = accounts[0]
+    refund_to = accounts[4]
+    token = project.MockERC20.deploy("USD Coin", "USDC", 6, sender=creator)
+
+    with ape.reverts("bad extension"):
+        project.KingOfTheHillGiveawayV5.deploy(
+            token.address,
+            refund_to.address,
+            PROMPT,
+            AMOUNT,
+            FLOOR,
+            chain.pending_timestamp + 1_000,
+            0,
+            MAX_OVERTIME,
+            MAX_SHOTS,
+            2,
+            keccak(text=ANSWER),
+            sender=creator,
+        )
+
+    with ape.reverts("bad overtime"):
+        project.KingOfTheHillGiveawayV5.deploy(
+            token.address,
+            refund_to.address,
+            PROMPT,
+            AMOUNT,
+            FLOOR,
+            chain.pending_timestamp + 1_000,
+            EXTENSION_WINDOW,
+            EXTENSION_WINDOW - 1,
+            MAX_SHOTS,
+            2,
             keccak(text=ANSWER),
             sender=creator,
         )
