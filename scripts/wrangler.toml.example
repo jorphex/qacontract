@@ -4,6 +4,7 @@
 name = "kingofthehill-api"
 main = "cloudflare_worker.js"
 compatibility_date = "2026-06-26"
+workers_dev = false
 
 [vars]
 CHAIN_ID = "8453"
