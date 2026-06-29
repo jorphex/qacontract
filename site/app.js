@@ -12,9 +12,12 @@ let provider, contract, tokenContract;
 let useMock = false;
 let state = {};
 let refreshTimer = null;
+let countdownTimer = null;
 let lastShotSequence = 0;
-const REFRESH_INTERVAL = 1000;
-let currentInterval = REFRESH_INTERVAL;
+const BASE_INTERVAL = 3000;
+const ACTIVE_INTERVAL = 1000;
+const IDLE_INTERVAL = 10000;
+let currentInterval = BASE_INTERVAL;
 
 // ── Helpers ────────────────────────────────────────────────
 const $ = (sel) => document.querySelector(sel);
@@ -535,6 +538,11 @@ async function refresh() {
   $('#floor').textContent = state.floorRaw != null ? formatToken(state.floorRaw) : '-';
   $('#max-shots').textContent = maxShots != null ? Number(maxShots).toString() : '-';
   $('#timer').textContent = state.ended ? 'Ended' : formatDuration(timeLeft);
+  if (state.ended) {
+    stopCountdown();
+  } else {
+    startCountdown();
+  }
   $('#game-start').textContent = state.startTime ? fmtTime(state.startTime) : '-';
 
   // Current / winner prize
@@ -606,11 +614,12 @@ async function refresh() {
 
   renderHistory(shots);
 
-  if (lastShotSequence > 0 && state.shotSequence > lastShotSequence) {
+  const hadNewShot = lastShotSequence > 0 && state.shotSequence > lastShotSequence;
+  if (hadNewShot) {
     triggerCrownAnimation();
   }
   lastShotSequence = state.shotSequence;
-  adjustRefreshInterval();
+  adjustRefreshInterval(hadNewShot);
 }
 
 async function call(contractObj, fn, ...args) {
@@ -823,17 +832,49 @@ function stopRefresh() {
   }
 }
 
-function adjustRefreshInterval() {
+function adjustRefreshInterval(hadNewShot = false) {
   if (state.ended) {
     stopRefresh();
+    stopCountdown();
     return;
   }
-  if (currentInterval !== REFRESH_INTERVAL) {
-    currentInterval = REFRESH_INTERVAL;
+  const now = nowSeconds();
+  const timeLeft = Math.max(0, state.deadline - now);
+  let nextInterval = BASE_INTERVAL;
+  if (timeLeft > 0 && timeLeft <= 60) {
+    nextInterval = ACTIVE_INTERVAL;
+  } else if (!state.started) {
+    nextInterval = IDLE_INTERVAL;
+  } else if (hadNewShot) {
+    nextInterval = ACTIVE_INTERVAL;
+  }
+  if (nextInterval !== currentInterval) {
+    currentInterval = nextInterval;
     if (refreshTimer) {
       clearInterval(refreshTimer);
       refreshTimer = setInterval(refresh, currentInterval);
     }
+  }
+}
+
+function startCountdown() {
+  stopCountdown();
+  countdownTimer = setInterval(() => {
+    if (state.ended || !state.deadline) {
+      stopCountdown();
+      return;
+    }
+    const left = Math.max(0, state.deadline - nowSeconds());
+    const timerEl = $('#timer');
+    if (timerEl) timerEl.textContent = formatDuration(left);
+    if (left === 0) stopCountdown();
+  }, 1000);
+}
+
+function stopCountdown() {
+  if (countdownTimer) {
+    clearInterval(countdownTimer);
+    countdownTimer = null;
   }
 }
 
