@@ -507,6 +507,7 @@ async function refresh() {
   state.currentHolder = king && king !== EMPTY_ADDRESS ? king.toLowerCase() : null;
   state.kingSince = kingSince ? Number(kingSince) : 0;
   state.winner = winner && winner !== EMPTY_ADDRESS ? winner.toLowerCase() : null;
+  state.kingPrizeRaw = kingPrize != null ? kingPrize : 0n;
   state.shotSequence = shotSequence != null ? Number(shotSequence) : 0;
 
   const now = nowSeconds();
@@ -539,6 +540,8 @@ async function refresh() {
   let currentPrizeHuman = 0;
   if (state.ended && state.paidAmountRaw && state.paidAmountRaw > 0n) {
     currentPrizeHuman = paidHuman;
+  } else if (state.kingPrizeRaw != null && state.kingPrizeRaw > 0n) {
+    currentPrizeHuman = Number(state.kingPrizeRaw) / Math.pow(10, decimals);
   } else if (state.currentHolder && state.kingSince && state.started && !state.ended) {
     const effectiveUntil = Math.min(now, state.originalDeadline || state.deadline);
     const elapsed = Math.max(0, effectiveUntil - state.kingSince);
