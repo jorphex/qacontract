@@ -554,11 +554,15 @@ async function refresh() {
   $('#king-since-label').textContent = state.ended ? 'Won At' : 'Captured';
   $('#king-since').textContent = state.kingSince ? fmtTime(state.kingSince) : '—';
 
-  const heldStart = state.kingSince || state.startTime;
-  const heldEnd = state.ended ? state.deadline : now;
-  const heldSeconds = Math.max(0, heldEnd - heldStart);
+  let heldText = '—';
+  if (state.started) {
+    const heldStart = state.kingSince || state.startTime;
+    const heldEnd = state.ended ? state.deadline : now;
+    const heldSeconds = Math.max(0, heldEnd - heldStart);
+    if (heldSeconds > 0) heldText = formatDuration(heldSeconds);
+  }
   $('#king-held-label').textContent = state.ended ? 'Held For' : 'Time Held';
-  $('#king-held').textContent = heldSeconds > 0 ? formatDuration(heldSeconds) : '—';
+  $('#king-held').textContent = heldText;
 
   // Build reigns from Shot events
   const shots = await call(contract, 'queryFilter', 'Shot');
