@@ -321,7 +321,7 @@ def deploy_and_fund(
     answer_hash: str,
 ) -> tuple[object, object, str, str | None]:
     game = deployer.deploy(
-        project.KingOfTheHillGiveawayV5,
+        project.KingOfTheHillGiveawayV51,
         token,
         refund_to,
         prompt,
@@ -699,7 +699,7 @@ def cli(
     if clawback and not finalize:
         raise click.BadParameter("clawback requires finalize")
 
-    click.echo("KingOfTheHillGiveawayV5 live gameplay simulation")
+    click.echo("KingOfTheHillGiveawayV51 live gameplay simulation")
     click.echo(f"account={account}")
     click.echo(f"players={player1},{player2},{player3}")
     click.echo(f"account_private_key={'set' if account_private_key else 'unset'}")

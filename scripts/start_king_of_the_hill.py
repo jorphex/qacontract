@@ -55,13 +55,13 @@ def echo_game_state(game):
     "--account",
     envvar="KINGOFTHEHILL_ACCOUNT",
     required=True,
-    help="Ape account alias that created the KingOfTheHillGiveawayV5.",
+    help="Ape account alias that created the KingOfTheHillGiveawayV51.",
 )
 @click.option(
     "--king-of-the-hill",
     envvar="KINGOFTHEHILL_ADDRESS",
     required=True,
-    help="Deployed KingOfTheHillGiveawayV5 address.",
+    help="Deployed KingOfTheHillGiveawayV51 address.",
 )
 @click.option(
     "--dry-run",
@@ -71,7 +71,7 @@ def echo_game_state(game):
 def cli(account: str, king_of_the_hill: str, dry_run: bool):
     king_of_the_hill = parse_address(king_of_the_hill, "king-of-the-hill")
 
-    click.echo("KingOfTheHillGiveawayV5 start")
+    click.echo("KingOfTheHillGiveawayV51 start")
     click.echo(f"account={account}")
     click.echo(f"king_of_the_hill={king_of_the_hill}")
 
@@ -79,7 +79,7 @@ def cli(account: str, king_of_the_hill: str, dry_run: bool):
         return
 
     creator = accounts.load(account)
-    game = project.KingOfTheHillGiveawayV5.at(king_of_the_hill)
+    game = project.KingOfTheHillGiveawayV51.at(king_of_the_hill)
     contract_creator = game.creator()
     funded = game.funded()
     started = game.started()
@@ -90,21 +90,21 @@ def cli(account: str, king_of_the_hill: str, dry_run: bool):
 
     if contract_creator != creator.address:
         raise click.ClickException(
-            "loaded account is not the KingOfTheHillGiveawayV5 creator"
+            "loaded account is not the KingOfTheHillGiveawayV51 creator"
         )
 
     if not funded:
-        raise click.ClickException("KingOfTheHillGiveawayV5 is not funded")
+        raise click.ClickException("KingOfTheHillGiveawayV51 is not funded")
 
     if started:
-        raise click.ClickException("KingOfTheHillGiveawayV5 is already started")
+        raise click.ClickException("KingOfTheHillGiveawayV51 is already started")
 
     if ended:
-        raise click.ClickException("KingOfTheHillGiveawayV5 is already ended")
+        raise click.ClickException("KingOfTheHillGiveawayV51 is already ended")
 
     now = int(time.time())
     if now >= deadline:
-        raise click.ClickException(f"KingOfTheHillGiveawayV5 is expired; now is {now}")
+        raise click.ClickException(f"KingOfTheHillGiveawayV51 is expired; now is {now}")
 
     start_receipt = game.start_game(sender=creator)
     click.echo(f"start_game_tx={tx_hash(start_receipt)}")

@@ -35,7 +35,7 @@ def deploy_funded_game(project, accounts, chain):
     refund_to = accounts[2]
     token = project.MockERC20.deploy("USD Coin", "USDC", 6, sender=creator)
     token.mint(creator, AMOUNT, sender=creator)
-    game = project.KingOfTheHillGiveawayV5.deploy(
+    game = project.KingOfTheHillGiveawayV51.deploy(
         token.address,
         refund_to.address,
         PROMPT,
@@ -182,7 +182,7 @@ def test_deploy_and_fund_script_deploys_game(project, accounts, capsys, monkeypa
         standalone_mode=False,
     )
 
-    game = project.KingOfTheHillGiveawayV5.at(
+    game = project.KingOfTheHillGiveawayV51.at(
         deployed_address_from_output(capsys.readouterr().out)
     )
 
@@ -243,7 +243,7 @@ def test_deploy_and_fund_script_can_start_game(
         standalone_mode=False,
     )
 
-    game = project.KingOfTheHillGiveawayV5.at(
+    game = project.KingOfTheHillGiveawayV51.at(
         deployed_address_from_output(capsys.readouterr().out)
     )
 
@@ -438,7 +438,7 @@ def test_simulation_script_runs_three_player_scenario(
         standalone_mode=False,
     )
 
-    game = project.KingOfTheHillGiveawayV5.at(
+    game = project.KingOfTheHillGiveawayV51.at(
         simulated_address_from_output(capsys.readouterr().out)
     )
     log_text = log_file.read_text()
@@ -547,7 +547,7 @@ def test_simulation_script_can_run_timed_overtime_scenario(
         standalone_mode=False,
     )
 
-    game = project.KingOfTheHillGiveawayV5.at(
+    game = project.KingOfTheHillGiveawayV51.at(
         simulated_address_from_output(capsys.readouterr().out)
     )
     log_text = log_file.read_text()
@@ -642,7 +642,7 @@ def test_simulation_script_can_pause_before_start(
     )
 
     output = capsys.readouterr().out
-    game = project.KingOfTheHillGiveawayV5.at(
+    game = project.KingOfTheHillGiveawayV51.at(
         simulated_address_from_output(output)
     )
     log_text = log_file.read_text()
@@ -731,7 +731,7 @@ def test_simulation_script_can_use_raw_private_keys_without_loading_aliases(
         standalone_mode=False,
     )
 
-    game = project.KingOfTheHillGiveawayV5.at(
+    game = project.KingOfTheHillGiveawayV51.at(
         simulated_address_from_output(capsys.readouterr().out)
     )
 

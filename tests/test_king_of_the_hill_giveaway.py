@@ -31,7 +31,7 @@ def deploy_game(
     refund_to = accounts[4]
     token = project.MockERC20.deploy("USD Coin", "USDC", 6, sender=creator)
     token.mint(creator, AMOUNT, sender=creator)
-    game = project.KingOfTheHillGiveawayV5.deploy(
+    game = project.KingOfTheHillGiveawayV51.deploy(
         token.address,
         refund_to.address,
         PROMPT,
@@ -187,7 +187,7 @@ def test_late_shot_extensions_stop_at_max_deadline(project, accounts, chain):
     assert list(receipt.decode_logs(game.DeadlineExtended)) == []
 
 
-def test_later_correct_reign_wins_even_if_final_king_is_wrong(
+def test_highest_banked_correct_reign_wins_even_if_final_king_is_wrong(
     project, accounts, chain
 ):
     creator = accounts[0]
@@ -204,6 +204,7 @@ def test_later_correct_reign_wins_even_if_final_king_is_wrong(
     chain.pending_timestamp = alice_since + 200
     chain.mine()
     game.shoot(WRONG_ANSWER, sender=bob)
+    alice_reign_ended_at = game.king_since()
 
     chain.pending_timestamp = game.king_since() + 100
     chain.mine()
@@ -214,9 +215,11 @@ def test_later_correct_reign_wins_even_if_final_king_is_wrong(
     chain.mine()
     game.shoot(WRONG_ANSWER, sender=bob)
 
+    alice_prize = expected_prize(game, alice_since, alice_reign_ended_at)
     carol_reign_ended_at = game.king_since()
     carol_prize = expected_prize(game, carol_since, carol_reign_ended_at)
     assert game.king() == bob.address
+    assert alice_prize > carol_prize
     assert carol_prize < AMOUNT
 
     chain.pending_timestamp = game.deadline() + 1
@@ -225,14 +228,14 @@ def test_later_correct_reign_wins_even_if_final_king_is_wrong(
     ended_events = list(receipt.decode_logs(game.GameEnded))
 
     assert game.ended()
-    assert game.winner() == carol.address
-    assert token.balanceOf(carol) == carol_prize
+    assert game.winner() == alice.address
+    assert token.balanceOf(alice) == alice_prize
     assert len(ended_events) == 1
     assert ended_events[0].reason == REASON_WON
 
     game.clawback(sender=creator)
 
-    assert token.balanceOf(refund_to) == AMOUNT - carol_prize
+    assert token.balanceOf(refund_to) == AMOUNT - alice_prize
 
 
 def test_current_correct_king_wins_reign_through_deadline(project, accounts, chain):
@@ -431,7 +434,9 @@ def test_wrong_shot_at_exact_deadline_does_not_erase_latest_correct_reign(
     assert token.balanceOf(alice) == expected
 
 
-def test_late_correct_steal_resets_prize_growth(project, accounts, chain):
+def test_late_correct_steal_does_not_replace_higher_banked_winner(
+    project, accounts, chain
+):
     creator = accounts[0]
     alice = accounts[1]
     bob = accounts[2]
@@ -439,6 +444,7 @@ def test_late_correct_steal_resets_prize_growth(project, accounts, chain):
     fund_and_start(token, game, creator)
 
     game.shoot(ANSWER, sender=alice)
+    alice_since = game.king_since()
     chain.pending_timestamp = game.start_time() + game.game_duration() // 2
     chain.mine()
     alice_current_prize = game.king_prize()
@@ -449,14 +455,17 @@ def test_late_correct_steal_resets_prize_growth(project, accounts, chain):
 
     assert game.king() == bob.address
     assert game.king_prize() == FLOOR
-    assert alice_current_prize > game.king_prize()
+    alice_expected = expected_prize(game, alice_since, game.king_since())
+    assert alice_expected > game.king_prize()
 
     chain.pending_timestamp = game.deadline() + 1
     chain.mine()
     game.finalize(sender=bob)
 
-    assert game.winner() == bob.address
-    assert game.paid_amount() < alice_current_prize
+    assert game.king() == bob.address
+    assert game.winner() == alice.address
+    assert game.paid_amount() == alice_expected
+    assert alice_expected > alice_current_prize
 
 
 def test_overtime_does_not_increase_prize_past_original_deadline(
@@ -627,7 +636,7 @@ def test_invalid_curve_exponent_reverts(project, accounts, chain):
     token = project.MockERC20.deploy("USD Coin", "USDC", 6, sender=creator)
 
     with ape.reverts("bad curve"):
-        project.KingOfTheHillGiveawayV5.deploy(
+        project.KingOfTheHillGiveawayV51.deploy(
             token.address,
             refund_to.address,
             PROMPT,
@@ -649,7 +658,7 @@ def test_invalid_overtime_settings_revert(project, accounts, chain):
     token = project.MockERC20.deploy("USD Coin", "USDC", 6, sender=creator)
 
     with ape.reverts("bad extension"):
-        project.KingOfTheHillGiveawayV5.deploy(
+        project.KingOfTheHillGiveawayV51.deploy(
             token.address,
             refund_to.address,
             PROMPT,
@@ -665,7 +674,7 @@ def test_invalid_overtime_settings_revert(project, accounts, chain):
         )
 
     with ape.reverts("bad overtime"):
-        project.KingOfTheHillGiveawayV5.deploy(
+        project.KingOfTheHillGiveawayV51.deploy(
             token.address,
             refund_to.address,
             PROMPT,

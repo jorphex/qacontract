@@ -256,7 +256,7 @@ def cli(
         curve_exponent,
     )
 
-    click.echo("KingOfTheHillGiveawayV5 deployment and funding")
+    click.echo("KingOfTheHillGiveawayV51 deployment and funding")
     click.echo(f"account={account}")
     click.echo(f"token={token}")
     click.echo(f"refund_to={refund_to}")
@@ -276,7 +276,7 @@ def cli(
 
     deployer = accounts.load(account)
     contract = deployer.deploy(
-        project.KingOfTheHillGiveawayV5,
+        project.KingOfTheHillGiveawayV51,
         token,
         refund_to,
         prompt,

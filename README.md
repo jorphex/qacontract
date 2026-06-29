@@ -4,13 +4,13 @@ Vyper contract workspace for onchain ERC20 giveaway games.
 
 The active contract is:
 
-- `KingOfTheHillGiveawayV5`: v5 king-of-the-hill giveaway where players call
+- `KingOfTheHillGiveawayV51`: v5.1 king-of-the-hill giveaway where players call
   `shoot(answer)`, each wallet has limited shots, the visible king can be
   stolen until the live deadline, late shots extend the live deadline within a
-  capped overtime window, and the latest correct holder wins a prize based on
-  their cumulative correct hold time capped at the original deadline.
+  capped overtime window, and the correct holder with the highest banked prize
+  wins using cumulative correct hold time capped at the original deadline.
 
-Older v1-v4 prompt-claim, puzzle-ramp, and KOTH experiments are preserved under
+Older v1-v5 prompt-claim, puzzle-ramp, and KOTH experiments are preserved under
 `deprecated/`.
 
 ## Development
@@ -62,9 +62,9 @@ Blue Candle
 
 Use `--normalize` only if you intentionally want a stripped, lowercase answer.
 
-## KingOfTheHillGiveawayV5 Flow
+## KingOfTheHillGiveawayV51 Flow
 
-Deploy and fund v5 on Base mainnet:
+Deploy and fund v5.1 on Base mainnet:
 
 ```sh
 uv run ape run deploy_and_fund_king_of_the_hill \
@@ -82,7 +82,7 @@ uv run ape run deploy_and_fund_king_of_the_hill \
   --answer-hash 0xYourAnswerHash
 ```
 
-The script deploys `KingOfTheHillGiveawayV5`, stores the public `prompt`,
+The script deploys `KingOfTheHillGiveawayV51`, stores the public `prompt`,
 approves token spend, and calls `fund()`. It does not start the game unless
 `--start-now` is passed.
 
@@ -176,7 +176,7 @@ Use that pause to set `KINGOFTHEHILL_ADDRESS` for the live UI and confirm the
 contract is visible before the game clock starts. Pass `--yes-start` only when
 you want unattended runs.
 
-With no `--scenario`, the default run exercises v5 overtime in one game and
+With no `--scenario`, the default run exercises v5.1 overtime in one game and
 assumes the default `--max-shots 3`:
 
 ```text
@@ -190,7 +190,7 @@ That means player 1 spends all shots before the original deadline, player 2's
 last shot is wrong in overtime, and player 3's last shot is correct in
 overtime.
 
-To test a different v5 overtime path, add timed shot suffixes:
+To test a different v5.1 overtime path, add timed shot suffixes:
 
 ```sh
 uv run ape run simulate_king_of_the_hill_gameplay \
@@ -254,9 +254,9 @@ After the live deadline, anyone can call:
 finalize()
 ```
 
-`finalize()` closes the current reign, pays the latest correct holder using
-their cumulative correct hold time, and leaves leftover funds in the contract
-for creator clawback.
+`finalize()` closes the current reign, pays the correct holder with the
+highest banked prize, and leaves leftover funds in the contract for creator
+clawback.
 
 Creator clawback:
 
