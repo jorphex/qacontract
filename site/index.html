@@ -8,7 +8,7 @@
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
   <link rel="icon" type="image/svg+xml" href="favicon.svg" />
-  <link rel="stylesheet" href="styles.css?v=5" />
+  <link rel="stylesheet" href="styles.css?v=6" />
   <script src="assets/ethers.umd.min.js"></script>
 </head>
 <body>
@@ -41,7 +41,7 @@
           <p>
             Capture the hill with <code>shoot(answer)</code>. Only time held with the <strong>correct answer</strong>
             banks toward the real prize, and that banked time stays hidden on-chain. The visible prize curve resets on
-            every capture and stops growing at the original deadline. Overtime is a short response window — late shots
+            every capture and stops growing at the original deadline. Overtime is a short response window. Late shots
             can still change the visible king, but they do not create new prize growth. The highest banked correct
             prize wins.
           </p>
@@ -87,27 +87,27 @@
       <div class="stats-grid">
         <div class="stat-card" id="stat-status">
           <div class="stat-label">Game Status</div>
-          <div class="stat-value" id="status">—</div>
+          <div class="stat-value" id="status">-</div>
         </div>
         <div class="stat-card" id="stat-pool">
           <div class="stat-label">Prize Pool</div>
-          <div class="stat-value" id="pool">—</div>
+          <div class="stat-value" id="pool">-</div>
         </div>
         <div class="stat-card" id="stat-prize">
           <div class="stat-label" id="prize-label">Current Reign Prize</div>
-          <div class="stat-value" id="prize">—</div>
+          <div class="stat-value" id="prize">-</div>
         </div>
         <div class="stat-card" id="stat-floor">
           <div class="stat-label">Prize Floor</div>
-          <div class="stat-value" id="floor">—</div>
+          <div class="stat-value" id="floor">-</div>
         </div>
         <div class="stat-card" id="stat-timer">
           <div class="stat-label">Time Left</div>
-          <div class="stat-value" id="timer">—</div>
+          <div class="stat-value" id="timer">-</div>
         </div>
         <div class="stat-card" id="stat-shots">
           <div class="stat-label">Max Shots</div>
-          <div class="stat-value" id="max-shots">—</div>
+          <div class="stat-value" id="max-shots">-</div>
         </div>
       </div>
     </section>
@@ -116,19 +116,19 @@
       <div class="section-header">
         <h3 id="king-heading">Current King</h3>
       </div>
-      <div class="king-address" id="king">—</div>
+      <div class="king-address" id="king">-</div>
       <div class="king-details">
         <div class="king-detail">
           <span class="king-detail-label">Game Start</span>
-          <span class="king-detail-value" id="game-start">—</span>
+          <span class="king-detail-value" id="game-start">-</span>
         </div>
         <div class="king-detail">
           <span class="king-detail-label" id="king-since-label">Captured</span>
-          <span class="king-detail-value" id="king-since">—</span>
+          <span class="king-detail-value" id="king-since">-</span>
         </div>
         <div class="king-detail">
           <span class="king-detail-label" id="king-held-label">Time Held</span>
-          <span class="king-detail-value" id="king-held">—</span>
+          <span class="king-detail-value" id="king-held">-</span>
         </div>
       </div>
     </section>
@@ -169,7 +169,7 @@
       <div class="rule-card"><span class="rule-num">4</span><p>Recapturing with the correct answer resumes your hidden bank from where it left off.</p></div>
       <div class="rule-card"><span class="rule-num">4</span><p>Connect your wallet and call <code>shoot(answer)</code> with your answer.</p></div>
 
-      <div class="rule-card"><span class="rule-num">5</span><p>The highest banked correct prize wins. Overtime is a short response window — late shots can still change the visible king, but they do not create new prize growth.</p></div>
+      <div class="rule-card"><span class="rule-num">5</span><p>The highest banked correct prize wins. Overtime is a short response window. Late shots can still change the visible king, but they do not create new prize growth.</p></div>
       <div class="rule-card"><span class="rule-num">5</span><p>Verify the result, your remaining shots, and all state directly on Basescan.</p></div>
     </section>
   </main>
@@ -178,6 +178,6 @@
     <p>Read-only live view of the King of the Hill v5.1 game.</p>
   </footer>
 
-  <script type="module" src="app.js?v=6"></script>
+  <script type="module" src="app.js?v=7"></script>
 </body>
 </html>

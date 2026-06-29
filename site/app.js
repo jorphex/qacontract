@@ -1,4 +1,4 @@
-// King of the Hill v5.1 — prototype viewer wired to the live contract.
+// King of the Hill v5.1 - prototype viewer wired to the live contract.
 
 const ERC20_ABI = [
   'function decimals() view returns (uint8)',
@@ -41,7 +41,7 @@ function formatDuration(seconds) {
 }
 
 function formatToken(raw) {
-  if (raw === undefined || raw === null) return '—';
+  if (raw === undefined || raw === null) return '-';
   const val = Number(raw) / Math.pow(10, state.tokenDecimals || 18);
   if (val >= 1000) return `${val.toLocaleString(undefined, { maximumFractionDigits: 0 })} ${state.tokenSymbol || ''}`.trim();
   if (val >= 1) return `${val.toLocaleString(undefined, { maximumFractionDigits: 2 })} ${state.tokenSymbol || ''}`.trim();
@@ -518,7 +518,7 @@ async function refresh() {
   const paidHuman = Number(paidRaw) / Math.pow(10, decimals);
 
   // Status
-  let statusText = '—';
+  let statusText = '-';
   if (state.ended) statusText = 'Ended';
   else if (!state.funded) statusText = 'Not funded';
   else if (!state.started) statusText = 'Funded · not started';
@@ -530,11 +530,11 @@ async function refresh() {
   statusEl.classList.toggle('live', statusText === 'Live');
 
   // Stats
-  $('#pool').textContent = state.prizePoolRaw != null ? formatToken(state.prizePoolRaw) : '—';
-  $('#floor').textContent = state.floorRaw != null ? formatToken(state.floorRaw) : '—';
-  $('#max-shots').textContent = maxShots != null ? Number(maxShots).toString() : '—';
+  $('#pool').textContent = state.prizePoolRaw != null ? formatToken(state.prizePoolRaw) : '-';
+  $('#floor').textContent = state.floorRaw != null ? formatToken(state.floorRaw) : '-';
+  $('#max-shots').textContent = maxShots != null ? Number(maxShots).toString() : '-';
   $('#timer').textContent = state.ended ? 'Ended' : formatDuration(timeLeft);
-  $('#game-start').textContent = state.startTime ? fmtTime(state.startTime) : '—';
+  $('#game-start').textContent = state.startTime ? fmtTime(state.startTime) : '-';
 
   // Current / winner prize
   let currentPrizeHuman = 0;
@@ -549,7 +549,7 @@ async function refresh() {
   }
   $('#prize').textContent = currentPrizeHuman > 0
     ? `${currentPrizeHuman.toLocaleString(undefined, { maximumFractionDigits: 4 })} ${symbol}`.trim()
-    : '—';
+    : '-';
   $('#prize-label').textContent = state.ended ? 'Winner Prize' : 'Current Reign Prize';
 
   // King / winner card
@@ -559,9 +559,9 @@ async function refresh() {
   $('#king').textContent = addrShort(displayHolder);
   $('.king-section').classList.toggle('ended', state.ended);
   $('#king-since-label').textContent = state.ended ? 'Won At' : 'Captured';
-  $('#king-since').textContent = state.kingSince ? fmtTime(state.kingSince) : '—';
+  $('#king-since').textContent = state.kingSince ? fmtTime(state.kingSince) : '-';
 
-  let heldText = '—';
+  let heldText = '-';
   if (state.started) {
     const heldStart = state.kingSince || state.startTime;
     const heldEnd = state.ended ? state.deadline : now;
