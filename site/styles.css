@@ -464,11 +464,6 @@ body {
   color: var(--accent);
 }
 
-.king-dot {
-  color: var(--accent);
-  margin-right: 0.35rem;
-}
-
 .ot-badge {
   display: inline-block;
   font-size: 0.6rem;
@@ -479,10 +474,6 @@ body {
   padding: 0.1rem 0.35rem;
   margin-left: 0.35rem;
   vertical-align: middle;
-}
-
-.current-king-row td {
-  color: var(--text);
 }
 
 .history-empty td {

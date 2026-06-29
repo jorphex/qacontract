@@ -635,14 +635,6 @@ function renderHistory(shots) {
 
   const isOt = (ts) => state.originalDeadline > 0 && ts > state.originalDeadline;
 
-  // Live current reign
-  if (state.currentHolder && !state.ended && state.kingSince) {
-    const nowTs = nowSeconds();
-    const elapsed = Math.max(0, Math.min(nowTs, capTs) - state.kingSince);
-    const prizeRaw = elapsed > 0 ? prizeAtElapsed(elapsed) : (state.floorRaw || 0n);
-    rows.push({ time: 'now', player: state.currentHolder, prizeRaw, current: true, ot: isOt(nowTs) });
-  }
-
   // Completed reigns from Shot events
   if (shots && shots.length > 0) {
     const sorted = shots.slice().sort((a, b) => Number(a.args.sequence) - Number(b.args.sequence));
@@ -652,7 +644,7 @@ function renderHistory(shots) {
       const reignStart = i === 0 ? state.startTime : Number(sorted[i - 1].args.captured_at);
       const elapsed = Math.max(0, Math.min(capturedAt, capTs) - reignStart);
       const prizeRaw = elapsed > 0 ? prizeAtElapsed(elapsed) : (state.floorRaw || 0n);
-      rows.push({ time: fmtTime(capturedAt), player: s.args.player.toLowerCase(), prizeRaw, current: false, ot: isOt(capturedAt) });
+      rows.push({ time: fmtTime(capturedAt), player: s.args.player.toLowerCase(), prizeRaw, ot: isOt(capturedAt) });
     }
   }
 
@@ -662,9 +654,9 @@ function renderHistory(shots) {
   }
 
   tbody.innerHTML = rows.slice(0, 10).map((r) => `
-    <tr${r.current ? ' class="current-king-row"' : ''}>
+    <tr>
       <td>${r.time}${r.ot ? ' <span class="ot-badge">OT</span>' : ''}</td>
-      <td>${r.current ? '<span class="king-dot">♔</span> ' : ''}${addrShort(r.player)}</td>
+      <td>${addrShort(r.player)}</td>
       <td class="history-prize">${formatToken(r.prizeRaw)}</td>
     </tr>
   `).join('');
