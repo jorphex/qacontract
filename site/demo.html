@@ -1,0 +1,236 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>King of the Hill v5.2</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+  <link rel="icon" type="image/svg+xml" href="favicon.svg" />
+  <link rel="stylesheet" href="styles.css?v=15" />
+  <style>
+    .why-section { margin: 2rem 0; }
+    .why-grid {
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: 1rem;
+      margin-top: 1rem;
+    }
+    .why-card {
+      background: var(--surface);
+      border: 1px solid var(--grid-line);
+      border-radius: 12px;
+      padding: 1rem;
+    }
+    .why-card h4 {
+      margin: 0 0 0.5rem;
+      font-size: 0.85rem;
+      text-transform: uppercase;
+      color: var(--accent);
+    }
+    .why-card p {
+      margin: 0;
+      font-size: 0.85rem;
+      color: var(--text-secondary);
+      line-height: 1.5;
+    }
+    @media (max-width: 720px) {
+      .why-grid { grid-template-columns: 1fr; }
+    }
+  </style>
+  <script src="assets/ethers.umd.min.js"></script>
+</head>
+<body>
+  <canvas id="gl"></canvas>
+
+  <header class="site-header">
+    <div class="brand">
+      <span class="crown">♔</span>
+      <h1>King of the Hill <span class="version">v5.2</span></h1>
+    </div>
+    <nav class="social-links" aria-label="Social links">
+      <a href="https://github.com/jorphex/qacontract" target="_blank" rel="noopener" aria-label="GitHub">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 2C6.477 2 2 6.477 2 12c0 4.418 2.865 8.166 6.839 9.489.5.092.682-.217.682-.483 0-.237-.009-.868-.013-1.703-2.782.605-3.369-1.34-3.369-1.34-.454-1.156-1.11-1.464-1.11-1.464-.908-.62.069-.607.069-.607 1.003.07 1.531 1.03 1.531 1.03.892 1.529 2.341 1.088 2.91.832.091-.647.35-1.088.636-1.338-2.22-.253-4.555-1.11-4.555-4.943 0-1.091.39-1.984 1.03-2.683-.103-.253-.447-1.272.098-2.65 0 0 .84-.269 2.75 1.025A9.578 9.578 0 0112 6.836c.85.004 1.705.114 2.504.336 1.909-1.294 2.747-1.025 2.747-1.025.547 1.378.203 2.397.1 2.65.64.699 1.028 1.592 1.028 2.683 0 3.842-2.339 4.687-4.566 4.935.359.309.678.919.678 1.852 0 1.338-.012 2.419-.012 2.747 0 .268.18.579.688.481C21.138 20.163 24 16.418 24 12c0-5.523-4.477-10-10-10z"/></svg>
+      </a>
+      <a href="https://x.com/JxyHelper" target="_blank" rel="noopener" aria-label="X">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M18.244 2.25h3.308l-7.227 8.26 8.502 11.24H16.17l-5.214-6.817L4.99 21.75H1.68l7.73-8.835L1.254 2.25H8.08l4.713 6.231 5.45-6.231zm-1.161 17.52h1.833L7.084 4.126H5.117l10.966 15.644z"/></svg>
+      </a>
+    </nav>
+  </header>
+
+  <div class="site-notice">
+    This UI reflects the contract's state, but always verify directly on Basescan before acting.
+  </div>
+
+  <main class="container">
+    <section class="hero">
+      <div class="hero-top">
+        <div class="hero-text">
+          <h2>Get paid to learn Web3</h2>
+          <p>
+            This is a live, on-chain game. Shoot the current king with an answer. Whoever holds the hill correctly for
+            the longest time wins tokens. The UI won't tell you everything. That's intentional. If you want the real
+            picture, read the chain through a block explorer.
+          </p>
+        </div>
+
+        <div class="hero-crown" aria-label="King change animation">
+          <div class="crown-wrap" id="crownWrap">
+            <svg class="crown-svg" id="activeCrown" viewBox="0 0 64 64" xmlns="http://www.w3.org/2000/svg">
+              <path d="M8 44 L4 20 L18 32 L32 10 L46 32 L60 20 L56 44 Z" />
+              <rect x="8" y="48" width="48" height="6" rx="2" />
+              <circle cx="16" cy="51" r="1.5" fill="rgba(0,0,0,0.2)" />
+              <circle cx="32" cy="51" r="1.5" fill="rgba(0,0,0,0.2)" />
+              <circle cx="48" cy="51" r="1.5" fill="rgba(0,0,0,0.2)" />
+            </svg>
+            <svg class="crack-overlay" viewBox="0 0 48 48">
+              <line x1="24" y1="8" x2="20" y2="20" />
+              <line x1="20" y1="20" x2="28" y2="28" />
+              <line x1="20" y1="20" x2="14" y2="26" />
+              <line x1="28" y1="28" x2="34" y2="36" />
+            </svg>
+            <div class="impact-flash"></div>
+            <div class="fragment"></div>
+            <div class="fragment"></div>
+            <div class="fragment"></div>
+            <div class="fragment"></div>
+            <div class="fragment"></div>
+            <svg class="new-crown" id="newCrown" viewBox="0 0 64 64" xmlns="http://www.w3.org/2000/svg">
+              <path d="M8 44 L4 20 L18 32 L32 10 L46 32 L60 20 L56 44 Z" />
+              <rect x="8" y="48" width="48" height="6" rx="2" />
+              <circle cx="16" cy="51" r="1.5" fill="rgba(0,0,0,0.2)" />
+              <circle cx="32" cy="51" r="1.5" fill="rgba(0,0,0,0.2)" />
+              <circle cx="48" cy="51" r="1.5" fill="rgba(0,0,0,0.2)" />
+            </svg>
+          </div>
+        </div>
+      </div>
+      <div class="hero-viz">
+        <canvas id="prize-canvas"></canvas>
+      </div>
+    </section>
+
+    <section class="why-section">
+      <div class="section-header"><h3>Why this game exists</h3></div>
+      <div class="why-grid">
+        <div class="why-card">
+          <h4>The UI hides on purpose</h4>
+          <p>Correct answers and banked time stay hidden. If you want the truth, read the chain through a block explorer.</p>
+        </div>
+        <div class="why-card">
+          <h4>Prizes are automatic</h4>
+          <p>The smart contract pays the winner. No host can stop, reverse, or forget. Verify the transfer yourself.</p>
+        </div>
+        <div class="why-card">
+          <h4>Learn by clicking</h4>
+          <p>If your wallet doesn't show the token, check the explorer. The chain is the neutral source of truth.</p>
+        </div>
+      </div>
+    </section>
+
+    <section class="stats-section">
+      <div class="stats-grid">
+        <div class="stat-card" id="stat-status">
+          <div class="stat-label">Game Status</div>
+          <div class="stat-value" id="status">-</div>
+        </div>
+        <div class="stat-card" id="stat-pool">
+          <div class="stat-label">Prize Pool</div>
+          <div class="stat-value" id="pool">-</div>
+        </div>
+        <div class="stat-card" id="stat-prize">
+          <div class="stat-label" id="prize-label">Current Reign Prize</div>
+          <div class="stat-value" id="prize">-</div>
+        </div>
+        <div class="stat-card" id="stat-floor">
+          <div class="stat-label">Prize Floor</div>
+          <div class="stat-value" id="floor">-</div>
+        </div>
+        <div class="stat-card" id="stat-timer">
+          <div class="stat-label">Time Left</div>
+          <div class="stat-value" id="timer">-</div>
+        </div>
+        <div class="stat-card" id="stat-shots">
+          <div class="stat-label">Max Shots</div>
+          <div class="stat-value" id="max-shots">-</div>
+        </div>
+      </div>
+    </section>
+
+    <section class="king-section">
+      <div class="section-header">
+        <h3 id="king-heading">Current King</h3>
+      </div>
+      <div class="king-address" id="king">-</div>
+      <div class="winner-prize" id="winner-prize">
+        <span class="winner-prize-label">Winner Prize</span>
+        <span class="winner-prize-value" id="winner-prize-value">-</span>
+      </div>
+      <div class="king-details">
+        <div class="king-detail">
+          <span class="king-detail-label">Game Start</span>
+          <span class="king-detail-value" id="game-start">-</span>
+        </div>
+        <div class="king-detail">
+          <span class="king-detail-label" id="king-since-label">Captured</span>
+          <span class="king-detail-value" id="king-since">-</span>
+        </div>
+        <div class="king-detail">
+          <span class="king-detail-label" id="king-held-label">Time Held</span>
+          <span class="king-detail-value" id="king-held">-</span>
+        </div>
+      </div>
+    </section>
+
+    <section class="history-section">
+      <div class="section-header">
+        <h3>Game History</h3>
+      </div>
+      <div class="table-wrap">
+        <table id="history">
+          <thead>
+            <tr>
+              <th>Time</th>
+              <th>Player</th>
+              <th title="Visible prize immediately before this capture">Prize at Capture</th>
+            </tr>
+          </thead>
+          <tbody id="history-body">
+            <tr class="history-empty"><td colspan="3">No captures yet.</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </section>
+
+    <section class="rules-pair">
+      <div class="section-header"><h3>How It Works</h3></div>
+      <div class="section-header"><h3>Play on-chain</h3></div>
+
+      <div class="rule-card"><span class="rule-num">1</span><p>The visible prize curve rises from the floor to the prize pool as time passes.</p></div>
+      <div class="rule-card"><span class="rule-num">1</span><p>Open the contract on <a id="basescan-link" href="#" target="_blank" rel="noopener">Basescan →</a> to call it directly.</p></div>
+
+      <div class="rule-card"><span class="rule-num">2</span><p>Call <code>shoot(answer)</code> to capture the hill. Every address has a limited number of shots.</p></div>
+      <div class="rule-card"><span class="rule-num">2</span><p>Read <code>prompt()</code> to see the exact question you need to answer.</p></div>
+
+      <div class="rule-card"><span class="rule-num">3</span><p>Each capture resets the visible curve to the floor. Only <strong>correct</strong> hold time banks toward the real prize.</p></div>
+      <div class="rule-card"><span class="rule-num">3</span><p>Check <code>shots_remaining(yourAddress)</code> so you don't waste gas.</p></div>
+
+      <div class="rule-card"><span class="rule-num">4</span><p>Recapturing with the correct answer resumes your hidden bank from where it left off.</p></div>
+      <div class="rule-card"><span class="rule-num">4</span><p>Connect your wallet and call <code>shoot(answer)</code> with your answer.</p></div>
+
+      <div class="rule-card"><span class="rule-num">5</span><p>The highest banked correct prize wins. Overtime is a short response window. Late shots can still change the visible king, but they do not create new prize growth.</p></div>
+      <div class="rule-card"><span class="rule-num">5</span><p>Verify the result, your remaining shots, and all state directly on Basescan.</p></div>
+
+      <div class="rule-card"><span class="rule-num">6</span><p>Verify everything on Basescan. This UI only shows part of the story.</p></div>
+      <div class="rule-card"><span class="rule-num">6</span><p>If your wallet doesn't show the prize token, paste the contract or your address into Basescan and look for the transfer.</p></div>
+    </section>
+  </main>
+
+  <footer class="site-footer">
+    <p>Read-only live view. Prizes are paid automatically by the smart contract. Verify everything on-chain.</p>
+  </footer>
+
+  <script type="module" src="app.js?v=16"></script>
+</body>
+</html>
