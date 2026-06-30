@@ -703,11 +703,28 @@ function showIdleState(reason = 'No active game is configured right now. Check b
   const p = $('.hero-text p');
   if (h2) h2.textContent = 'No Active Game';
   if (p) p.textContent = reason;
+
+  const setText = (id, text) => {
+    const el = $(id);
+    if (el) el.textContent = text;
+  };
+
+  setText('#status', 'No active game');
+  setText('#pool', '-');
+  setText('#prize', '-');
+  setText('#floor', '-');
+  setText('#timer', '-');
+  setText('#max-shots', '-');
+  setText('#king', '-');
+  setText('#game-start', '-');
+  setText('#king-since', '-');
+  setText('#king-held', '-');
+
   const status = $('#status');
-  if (status) {
-    status.textContent = 'Idle';
-    status.classList.remove('live');
-  }
+  if (status) status.classList.remove('live');
+
+  const tbody = $('#history-body');
+  if (tbody) tbody.innerHTML = '<tr class="history-empty"><td colspan="3">No active game.</td></tr>';
 }
 
 // ── Mock Mode ─────────────────────────────────────────────

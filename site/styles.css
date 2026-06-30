@@ -451,13 +451,14 @@ body {
 
 /* ── Idle State ─────────────────────────────────── */
 body.idle .site-notice,
-body.idle .hero-viz,
-body.idle .stats-section,
-body.idle .king-section,
-body.idle .history-section,
-body.idle .rules-pair,
-body.idle .site-footer {
+body.idle .hero-viz {
   display: none;
+}
+
+body.idle .stat-value,
+body.idle .king-address,
+body.idle .king-detail-value {
+  color: var(--text-muted);
 }
 
 body.idle .hero-text h2 {
