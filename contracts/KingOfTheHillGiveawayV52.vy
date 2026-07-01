@@ -56,6 +56,7 @@ token: public(address)
 creator: public(address)
 refund_to: public(address)
 prompt: public(String[256])
+side_quest: public(String[256])
 
 max_amount: public(uint256)
 floor_amount: public(uint256)
@@ -98,6 +99,7 @@ def __init__(
     _token: address,
     _refund_to: address,
     _prompt: String[256],
+    _side_quest: String[256],
     _max_amount: uint256,
     _floor_amount: uint256,
     _deadline: uint256,
@@ -114,6 +116,7 @@ def __init__(
     @param _token ERC20 prize token.
     @param _refund_to Address that receives creator clawbacks.
     @param _prompt Public prompt players answer when shooting.
+    @param _side_quest Public side quest clue, empty when disabled.
     @param _max_amount Maximum prize funded into the contract.
     @param _floor_amount Minimum prize for any winning reign.
     @param _deadline Original timestamp when shooting expires.
@@ -138,15 +141,19 @@ def __init__(
     assert _curve_exponent >= 1 and _curve_exponent <= 3, "bad curve"
     assert _answer_hash != empty(bytes32), "bad answer"
     assert _side_quest_boost_bps <= BPS, "bad boost"
+    if len(_side_quest) > 0:
+        assert _side_quest_hash != empty(bytes32), "bad side quest"
     if _side_quest_boost_bps > 0:
         assert _side_quest_hash != empty(bytes32), "bad side quest"
     if _side_quest_hash != empty(bytes32):
+        assert len(_side_quest) > 0, "bad side quest"
         assert _side_quest_hash != _answer_hash, "bad side quest"
 
     self.token = _token
     self.creator = msg.sender
     self.refund_to = _refund_to
     self.prompt = _prompt
+    self.side_quest = _side_quest
     self.max_amount = _max_amount
     self.floor_amount = _floor_amount
     self.original_deadline = _deadline

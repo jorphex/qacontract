@@ -23,6 +23,7 @@ MAX_SHOTS = 3
 EXTENSION_WINDOW = 60
 MAX_OVERTIME = 300
 PROMPT = "What color is the candle?"
+SIDE_QUEST = "Use the deadline that does not move, then add ammo."
 ANSWER_HASH = keccak(text="blue candle")
 ANSWER_HASH_HEX = f"0x{ANSWER_HASH.hex()}"
 SIDE_QUEST_HASH = keccak(text="hidden blue candle")
@@ -48,6 +49,7 @@ def deploy_funded_game(project, accounts, chain):
         token.address,
         refund_to.address,
         PROMPT,
+        "",
         AMOUNT,
         FLOOR,
         chain.pending_timestamp + 3600,
@@ -94,6 +96,7 @@ def clear_simulation_env(monkeypatch):
         "KINGOFTHEHILL_SIM_DEADLINE",
         "KINGOFTHEHILL_SIM_SLEEP_BETWEEN_SHOTS",
         "KINGOFTHEHILL_SIM_LOG_FORMAT",
+        "KINGOFTHEHILL_SIDE_QUEST",
         "KINGOFTHEHILL_SIDE_QUEST_HASH",
         "KINGOFTHEHILL_SIDE_QUEST_BOOST_BPS",
         "KINGOFTHEHILL_SIDE_QUEST_ANSWER",
@@ -110,8 +113,12 @@ def test_site_abi_does_not_expose_constructor_side_quest_metadata():
     )
 
     assert all(entry.get("type") != "constructor" for entry in abi)
-    assert "side_quest" not in abi_text
-    assert "side-quest" not in abi_text
+    assert "side_quest_hash" not in abi_text
+    assert "side_quest_boost_bps" not in abi_text
+    assert any(
+        entry.get("type") == "function" and entry.get("name") == "side_quest"
+        for entry in abi
+    )
     assert "side quest" not in frontend_text.lower()
     assert "sidequest" not in frontend_text.lower()
 
@@ -158,6 +165,7 @@ def test_validate_game_values_rejects_bad_curve_exponent(monkeypatch):
     with pytest.raises(click.BadParameter, match="curve-exponent must be 1, 2, or 3"):
         deploy_and_fund_king_of_the_hill.validate_game_values(
             prompt=PROMPT,
+            side_quest="",
             max_amount=100,
             floor_amount=1,
             deadline=200,
@@ -177,6 +185,7 @@ def test_validate_game_values_rejects_bad_side_quest_settings(monkeypatch):
     with pytest.raises(click.BadParameter, match="side-quest-boost-bps"):
         deploy_and_fund_king_of_the_hill.validate_game_values(
             prompt=PROMPT,
+            side_quest="",
             max_amount=100,
             floor_amount=1,
             deadline=200,
@@ -192,6 +201,7 @@ def test_validate_game_values_rejects_bad_side_quest_settings(monkeypatch):
     with pytest.raises(click.BadParameter, match="side-quest-hash is required"):
         deploy_and_fund_king_of_the_hill.validate_game_values(
             prompt=PROMPT,
+            side_quest="",
             max_amount=100,
             floor_amount=1,
             deadline=200,
@@ -204,9 +214,42 @@ def test_validate_game_values_rejects_bad_side_quest_settings(monkeypatch):
             side_quest_boost_bps=1,
         )
 
+    with pytest.raises(click.BadParameter, match="side-quest-hash is required"):
+        deploy_and_fund_king_of_the_hill.validate_game_values(
+            prompt=PROMPT,
+            side_quest=SIDE_QUEST,
+            max_amount=100,
+            floor_amount=1,
+            deadline=200,
+            extension_window=EXTENSION_WINDOW,
+            max_overtime=MAX_OVERTIME,
+            max_shots=MAX_SHOTS,
+            curve_exponent=2,
+            answer_hash=ANSWER_HASH_HEX,
+            side_quest_hash=ZERO_BYTES32,
+            side_quest_boost_bps=0,
+        )
+
+    with pytest.raises(click.BadParameter, match="side-quest is required"):
+        deploy_and_fund_king_of_the_hill.validate_game_values(
+            prompt=PROMPT,
+            side_quest="",
+            max_amount=100,
+            floor_amount=1,
+            deadline=200,
+            extension_window=EXTENSION_WINDOW,
+            max_overtime=MAX_OVERTIME,
+            max_shots=MAX_SHOTS,
+            curve_exponent=2,
+            answer_hash=ANSWER_HASH_HEX,
+            side_quest_hash=SIDE_QUEST_HASH_HEX,
+            side_quest_boost_bps=0,
+        )
+
     with pytest.raises(click.BadParameter, match="must differ"):
         deploy_and_fund_king_of_the_hill.validate_game_values(
             prompt=PROMPT,
+            side_quest=SIDE_QUEST,
             max_amount=100,
             floor_amount=1,
             deadline=200,
@@ -241,6 +284,12 @@ def test_deploy_and_fund_script_deploys_game(project, accounts, capsys, monkeypa
             refund_to.address,
             "--prompt",
             PROMPT,
+            "--side-quest",
+            SIDE_QUEST,
+            "--side-quest-hash",
+            SIDE_QUEST_HASH_HEX,
+            "--side-quest-boost-bps",
+            "0",
             "--max-amount",
             str(AMOUNT),
             "--floor-amount",
@@ -269,6 +318,7 @@ def test_deploy_and_fund_script_deploys_game(project, accounts, capsys, monkeypa
 
     assert result is None
     assert game.prompt() == PROMPT
+    assert game.side_quest() == SIDE_QUEST
     assert game.max_shots() == MAX_SHOTS
     assert game.extension_window() == EXTENSION_WINDOW
     assert game.max_overtime() == MAX_OVERTIME
@@ -317,6 +367,10 @@ def test_deploy_and_fund_script_can_start_game(
             "3",
             "--answer-hash",
             ANSWER_HASH_HEX,
+            "--side-quest-hash",
+            ZERO_BYTES32,
+            "--side-quest-boost-bps",
+            "0",
             "--start-now",
             "--network",
             "ethereum:local:test",
@@ -507,6 +561,8 @@ def test_simulation_side_quest_scenario_requires_side_quest_inputs(
             *base_args,
             "--side-quest-hash",
             SIDE_QUEST_HASH_HEX,
+            "--side-quest",
+            SIDE_QUEST,
             "--side-quest-answer",
             "hidden blue candle",
         ],
