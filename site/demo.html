@@ -69,9 +69,9 @@
         <div class="hero-text">
           <h2>Get paid to learn Web3</h2>
           <p>
-            This is a live, on-chain game. Shoot the current king with an answer. Whoever holds the hill correctly for
-            the longest time wins tokens. The UI won't tell you everything. That's intentional. If you want the real
-            picture, read the chain through a block explorer.
+            This is a live, on-chain game. Shoot the current king with the correct answer. Whoever holds the hill for
+            the longest cumulative time with correct answers wins. The UI won't tell you everything, which is
+            intentional. If you want the full picture, check the chain.
           </p>
         </div>
 
@@ -116,15 +116,15 @@
       <div class="why-grid">
         <div class="why-card">
           <h4>The UI hides on purpose</h4>
-          <p>Correct answers and banked time stay hidden. If you want the truth, read the chain through a block explorer.</p>
+          <p>Correct answers and banked time stay hidden. If you want the truth, check the chain through a block explorer.</p>
         </div>
         <div class="why-card">
-          <h4>Prizes are automatic</h4>
-          <p>The smart contract pays the winner. No host can stop, reverse, or forget. Verify the transfer yourself.</p>
+          <h4>Permissionless prize transfer</h4>
+          <p>The smart contract pays the winner. No one can stop, reverse, or forget. Verify the transfer yourself.</p>
         </div>
         <div class="why-card">
           <h4>Learn by clicking</h4>
-          <p>If your wallet doesn't show the token, check the explorer. The chain is the neutral source of truth.</p>
+          <p>This is just a website. If something doesn't look right, check the chain. It is the neutral source of truth.</p>
         </div>
       </div>
     </section>
@@ -207,23 +207,23 @@
       <div class="section-header"><h3>How It Works</h3></div>
       <div class="section-header"><h3>Play on-chain</h3></div>
 
-      <div class="rule-card"><span class="rule-num">1</span><p>The visible prize curve rises from the floor to the prize pool as time passes.</p></div>
+      <div class="rule-card"><span class="rule-num">1</span><p>The visible prize curve rises from the floor to the max prize as time passes.</p></div>
       <div class="rule-card"><span class="rule-num">1</span><p>Open the contract on <a id="basescan-link" href="#" target="_blank" rel="noopener">Basescan →</a> to call it directly.</p></div>
 
       <div class="rule-card"><span class="rule-num">2</span><p>Call <code>shoot(answer)</code> to capture the hill. Every address has a limited number of shots.</p></div>
       <div class="rule-card"><span class="rule-num">2</span><p>Read <code>prompt()</code> to see the exact question you need to answer.</p></div>
 
       <div class="rule-card"><span class="rule-num">3</span><p>Each capture resets the visible curve to the floor. Only <strong>correct</strong> hold time banks toward the real prize.</p></div>
-      <div class="rule-card"><span class="rule-num">3</span><p>Check <code>shots_remaining(yourAddress)</code> so you don't waste gas.</p></div>
+      <div class="rule-card"><span class="rule-num">3</span><p>Check <code>shots_remaining(yourAddress)</code> to see your remaining shots, or just count in your head.</p></div>
 
       <div class="rule-card"><span class="rule-num">4</span><p>Recapturing with the correct answer resumes your hidden bank from where it left off.</p></div>
       <div class="rule-card"><span class="rule-num">4</span><p>Connect your wallet and call <code>shoot(answer)</code> with your answer.</p></div>
 
-      <div class="rule-card"><span class="rule-num">5</span><p>The highest banked correct prize wins. Overtime is a short response window. Late shots can still change the visible king, but they do not create new prize growth.</p></div>
+      <div class="rule-card"><span class="rule-num">5</span><p>The highest banked time wins. Overtime is a short response window. Late shots can still change the visible king, but they do not create new prize growth.</p></div>
       <div class="rule-card"><span class="rule-num">5</span><p>Verify the result, your remaining shots, and all state directly on Basescan.</p></div>
 
       <div class="rule-card"><span class="rule-num">6</span><p>Verify everything on Basescan. This UI only shows part of the story.</p></div>
-      <div class="rule-card"><span class="rule-num">6</span><p>If your wallet doesn't show the prize token, paste the contract or your address into Basescan and look for the transfer.</p></div>
+      <div class="rule-card"><span class="rule-num">6</span><p>Anyone can permissionlessly call <code>finalize()</code> after the game ends, but the contract will only transfer the prize to the winner.</p></div>
     </section>
   </main>
 
