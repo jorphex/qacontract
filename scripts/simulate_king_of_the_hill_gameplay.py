@@ -97,6 +97,7 @@ def parse_answer_hash(value: str) -> str:
 
 def validate_game_values(
     prompt: str,
+    side_quest: str,
     max_amount: int,
     floor_amount: int,
     deadline: int,
@@ -113,6 +114,9 @@ def validate_game_values(
 
     if len(prompt.encode()) > 256:
         raise click.BadParameter("prompt must fit in 256 bytes")
+
+    if len(side_quest.encode()) > 256:
+        raise click.BadParameter("side-quest must fit in 256 bytes")
 
     if max_amount <= 0:
         raise click.BadParameter("max-amount must be greater than zero")
@@ -146,6 +150,12 @@ def validate_game_values(
 
     if side_quest_boost_bps > 0 and side_quest_hash == ZERO_BYTES32:
         raise click.BadParameter("side-quest-hash is required when boost is nonzero")
+
+    if side_quest and side_quest_hash == ZERO_BYTES32:
+        raise click.BadParameter("side-quest-hash is required when side-quest is set")
+
+    if side_quest_hash != ZERO_BYTES32 and not side_quest:
+        raise click.BadParameter("side-quest is required when side-quest-hash is set")
 
     if side_quest_hash != ZERO_BYTES32 and side_quest_hash == answer_hash:
         raise click.BadParameter("side-quest-hash must differ from answer-hash")
@@ -341,6 +351,7 @@ def deploy_and_fund(
     token: str,
     refund_to: str,
     prompt: str,
+    side_quest: str,
     max_amount: int,
     floor_amount: int,
     deadline: int,
@@ -357,6 +368,7 @@ def deploy_and_fund(
         token,
         refund_to,
         prompt,
+        side_quest,
         max_amount,
         floor_amount,
         deadline,
@@ -528,6 +540,13 @@ def timing_target(game, timing: str) -> int:
     envvar="KINGOFTHEHILL_PROMPT",
     required=True,
     help="Public prompt shown by the contract.",
+)
+@click.option(
+    "--side-quest",
+    envvar="KINGOFTHEHILL_SIDE_QUEST",
+    default="",
+    show_default=True,
+    help="Public side quest clue shown by the contract; empty disables the clue.",
 )
 @click.option(
     "--max-amount",
@@ -710,6 +729,7 @@ def cli(
     token: str | None,
     refund_to: str,
     prompt: str,
+    side_quest: str,
     max_amount: int,
     floor_amount: int,
     deadline: int | None,
@@ -743,6 +763,7 @@ def cli(
 
     validate_game_values(
         prompt,
+        side_quest,
         max_amount,
         floor_amount,
         first_deadline,
@@ -773,6 +794,7 @@ def cli(
     click.echo(f"player_private_keys_set={sum(bool(k) for k in [player1_private_key, player2_private_key, player3_private_key])}/3")
     click.echo(f"token={token}")
     click.echo(f"refund_to={refund_to}")
+    click.echo(f"side_quest={side_quest}")
     click.echo(f"extension_window={extension_window}")
     click.echo(f"max_overtime={max_overtime}")
     click.echo(f"side_quest_hash={side_quest_hash}")
@@ -807,6 +829,7 @@ def cli(
             token,
             refund_to,
             prompt,
+            side_quest,
             max_amount,
             floor_amount,
             scenario_deadline,
