@@ -8,7 +8,6 @@ MAX_SHOTS = 3
 EXTENSION_WINDOW = 60
 MAX_OVERTIME = 300
 PROMPT = "What color is the candle?"
-SIDE_QUEST = "Use the deadline that does not move, then add ammo."
 ANSWER = "blue candle"
 SIDE_QUEST_ANSWER = "hidden blue candle"
 WRONG_ANSWER = "red candle"
@@ -29,7 +28,6 @@ def deploy_game(
     max_overtime=MAX_OVERTIME,
     max_shots=MAX_SHOTS,
     curve_exponent=2,
-    side_quest="",
     side_quest_hash=ZERO_BYTES32,
     side_quest_boost_bps=0,
 ):
@@ -41,7 +39,6 @@ def deploy_game(
         token.address,
         refund_to.address,
         PROMPT,
-        side_quest,
         AMOUNT,
         floor,
         chain.pending_timestamp + deadline_offset,
@@ -496,13 +493,10 @@ def test_side_quest_answer_counts_correct_and_boosts_hold_time(
         accounts,
         chain,
         curve_exponent=1,
-        side_quest=SIDE_QUEST,
         side_quest_hash=keccak(text=SIDE_QUEST_ANSWER),
         side_quest_boost_bps=1_000,
     )
     fund_and_start(token, game, creator)
-
-    assert game.side_quest() == SIDE_QUEST
 
     chain.pending_timestamp = game.start_time() + 200
     chain.mine()
@@ -539,7 +533,6 @@ def test_side_quest_boost_cannot_exceed_elapsed_game_time(
         accounts,
         chain,
         curve_exponent=1,
-        side_quest=SIDE_QUEST,
         side_quest_hash=keccak(text=SIDE_QUEST_ANSWER),
         side_quest_boost_bps=10_000,
     )
@@ -573,7 +566,6 @@ def test_side_quest_boost_can_only_be_used_once_per_player(
         accounts,
         chain,
         curve_exponent=1,
-        side_quest=SIDE_QUEST,
         side_quest_hash=keccak(text=SIDE_QUEST_ANSWER),
         side_quest_boost_bps=1_000,
     )
@@ -619,7 +611,6 @@ def test_side_quest_answer_without_boost_is_alternate_correct_answer(
         project,
         accounts,
         chain,
-        side_quest=SIDE_QUEST,
         side_quest_hash=keccak(text=SIDE_QUEST_ANSWER),
     )
     fund_and_start(token, game, creator)
@@ -808,7 +799,6 @@ def test_invalid_curve_exponent_reverts(project, accounts, chain):
             token.address,
             refund_to.address,
             PROMPT,
-            "",
             AMOUNT,
             FLOOR,
             chain.pending_timestamp + 1_000,
@@ -833,7 +823,6 @@ def test_invalid_overtime_settings_revert(project, accounts, chain):
             token.address,
             refund_to.address,
             PROMPT,
-            "",
             AMOUNT,
             FLOOR,
             chain.pending_timestamp + 1_000,
@@ -852,7 +841,6 @@ def test_invalid_overtime_settings_revert(project, accounts, chain):
             token.address,
             refund_to.address,
             PROMPT,
-            "",
             AMOUNT,
             FLOOR,
             chain.pending_timestamp + 1_000,
@@ -877,7 +865,6 @@ def test_invalid_side_quest_settings_revert(project, accounts, chain):
             token.address,
             refund_to.address,
             PROMPT,
-            SIDE_QUEST,
             AMOUNT,
             FLOOR,
             chain.pending_timestamp + 1_000,
@@ -896,7 +883,6 @@ def test_invalid_side_quest_settings_revert(project, accounts, chain):
             token.address,
             refund_to.address,
             PROMPT,
-            "",
             AMOUNT,
             FLOOR,
             chain.pending_timestamp + 1_000,
@@ -915,7 +901,6 @@ def test_invalid_side_quest_settings_revert(project, accounts, chain):
             token.address,
             refund_to.address,
             PROMPT,
-            SIDE_QUEST,
             AMOUNT,
             FLOOR,
             chain.pending_timestamp + 1_000,

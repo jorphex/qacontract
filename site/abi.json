@@ -358,18 +358,6 @@
   },
   {
     "inputs": [],
-    "name": "side_quest",
-    "outputs": [
-      {
-        "name": "",
-        "type": "string"
-      }
-    ],
-    "stateMutability": "view",
-    "type": "function"
-  },
-  {
-    "inputs": [],
     "name": "max_amount",
     "outputs": [
       {

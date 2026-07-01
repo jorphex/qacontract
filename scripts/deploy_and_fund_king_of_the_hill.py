@@ -63,7 +63,6 @@ def parse_answer_hash(value: str) -> str:
 
 def validate_game_values(
     prompt: str,
-    side_quest: str,
     max_amount: int,
     floor_amount: int,
     deadline: int,
@@ -80,9 +79,6 @@ def validate_game_values(
 
     if len(prompt.encode()) > 256:
         raise click.BadParameter("prompt must fit in 256 bytes")
-
-    if len(side_quest.encode()) > 256:
-        raise click.BadParameter("side-quest must fit in 256 bytes")
 
     if max_amount <= 0:
         raise click.BadParameter("max-amount must be greater than zero")
@@ -117,12 +113,6 @@ def validate_game_values(
     if side_quest_boost_bps > 0 and side_quest_hash == ZERO_BYTES32:
         raise click.BadParameter("side-quest-hash is required when boost is nonzero")
 
-    if side_quest and side_quest_hash == ZERO_BYTES32:
-        raise click.BadParameter("side-quest-hash is required when side-quest is set")
-
-    if side_quest_hash != ZERO_BYTES32 and not side_quest:
-        raise click.BadParameter("side-quest is required when side-quest-hash is set")
-
     if side_quest_hash != ZERO_BYTES32 and side_quest_hash == answer_hash:
         raise click.BadParameter("side-quest-hash must differ from answer-hash")
 
@@ -132,7 +122,6 @@ def echo_contract_state(contract):
     click.echo(f"deployed_token={contract.token()}")
     click.echo(f"deployed_refund_to={contract.refund_to()}")
     click.echo(f"deployed_prompt={contract.prompt()}")
-    click.echo(f"deployed_side_quest={contract.side_quest()}")
     click.echo(f"deployed_max_amount={contract.max_amount()}")
     click.echo(f"deployed_floor_amount={contract.floor_amount()}")
     click.echo(f"deployed_original_deadline={contract.original_deadline()}")
@@ -178,13 +167,6 @@ def echo_contract_state(contract):
     envvar="KINGOFTHEHILL_PROMPT",
     required=True,
     help="Public prompt shown by the contract.",
-)
-@click.option(
-    "--side-quest",
-    envvar="KINGOFTHEHILL_SIDE_QUEST",
-    default="",
-    show_default=True,
-    help="Public side quest clue shown by the contract; empty disables the clue.",
 )
 @click.option(
     "--max-amount",
@@ -278,7 +260,6 @@ def cli(
     token: str | None,
     refund_to: str,
     prompt: str,
-    side_quest: str,
     max_amount: int,
     floor_amount: int,
     deadline: int,
@@ -297,7 +278,6 @@ def cli(
     refund_to = parse_address(refund_to, "refund-to")
     validate_game_values(
         prompt,
-        side_quest,
         max_amount,
         floor_amount,
         deadline,
@@ -315,7 +295,6 @@ def cli(
     click.echo(f"token={token}")
     click.echo(f"refund_to={refund_to}")
     click.echo(f"prompt={prompt}")
-    click.echo(f"side_quest={side_quest}")
     click.echo(f"max_amount={max_amount}")
     click.echo(f"floor_amount={floor_amount}")
     click.echo(f"deadline={deadline}")
@@ -337,7 +316,6 @@ def cli(
         token,
         refund_to,
         prompt,
-        side_quest,
         max_amount,
         floor_amount,
         deadline,

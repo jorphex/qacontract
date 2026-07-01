@@ -74,7 +74,6 @@ uv run ape run deploy_and_fund_king_of_the_hill \
   --account your-alias \
   --refund-to 0xYourRefundAddress \
   --prompt "What is the answer?" \
-  --side-quest "" \
   --max-amount 1000000 \
   --floor-amount 10000 \
   --deadline 1893456000 \
@@ -87,9 +86,9 @@ uv run ape run deploy_and_fund_king_of_the_hill \
   --side-quest-boost-bps 0
 ```
 
-The script deploys `KingOfTheHillGiveawayV52`, stores the public `prompt` and
-optional public `side_quest` clue, approves token spend, and calls `fund()`. It
-does not start the game unless `--start-now` is passed.
+The script deploys `KingOfTheHillGiveawayV52`, stores the public `prompt`,
+approves token spend, and calls `fund()`. It does not start the game unless
+`--start-now` is passed.
 
 `1000000` is `1 USDC` because USDC has 6 decimals.
 
@@ -99,20 +98,17 @@ shot lands with less than that much time remaining. `--max-overtime` caps total
 extension. Prize growth never continues past the original deadline, so overtime
 shots can still win but cannot push the prize above the original cap.
 
-`--side-quest` is an optional public clue exposed by the `side_quest()` read
-function. `--side-quest-hash` is the hidden second answer hash. If it is
-nonzero, that answer also counts as correct when submitted through
-`shoot(answer)`.
+`--side-quest-hash` is an optional second answer hash. If it is nonzero, that
+answer also counts as correct when submitted through `shoot(answer)`.
 `--side-quest-boost-bps` is a one-time boost per address in basis points of the
 game duration. `1000` means 10%; `10000` means 100%. The boost adds hold time,
 not tokens, and the result is capped to the elapsed hold time possible from
 game start to that shot/reign record time. This means the sidequest can help a
 player catch up to the global release trajectory, but cannot exceed it.
 
-Leave `--side-quest` empty and both sidequest numeric/hash values at zero to
-disable the feature. If `--side-quest`, `--side-quest-hash`, or
-`--side-quest-boost-bps` is set, the public clue and hidden hash must both be
-configured, and the sidequest hash must differ from `--answer-hash`.
+Leave both sidequest values at zero to disable the feature. If
+`--side-quest-boost-bps` is nonzero, `--side-quest-hash` must be nonzero and
+must differ from `--answer-hash`.
 
 The default token is native USDC for the selected Base network when
 `KINGOFTHEHILL_TOKEN` and `--token` are omitted.
@@ -232,10 +228,10 @@ live deadline first. Ordinary steps like `p3:N` still execute immediately.
 `Y` submits `KINGOFTHEHILL_CORRECT_ANSWER`; `N` submits
 `KINGOFTHEHILL_WRONG_ANSWER`; `S` submits
 `KINGOFTHEHILL_SIDE_QUEST_ANSWER`. `S` scenarios require
-`KINGOFTHEHILL_SIDE_QUEST` and `KINGOFTHEHILL_SIDE_QUEST_HASH` to be set. The
-script deploys, funds, and starts a fresh contract for each scenario, logs
-every read-state snapshot before and after each shot, and writes readable event
-blocks to `KINGOFTHEHILL_SIM_LOG_FILE`. Use `KINGOFTHEHILL_SIM_LOG_FORMAT=jsonl` or
+`KINGOFTHEHILL_SIDE_QUEST_HASH` to be set. The script deploys, funds, and
+starts a fresh contract for each scenario, logs every read-state snapshot
+before and after each shot, and writes readable event blocks to
+`KINGOFTHEHILL_SIM_LOG_FILE`. Use `KINGOFTHEHILL_SIM_LOG_FORMAT=jsonl` or
 `--log-format jsonl` if you need newline-delimited JSON. Logs are replaced at
 the start of each run; pass `--append-log` only when you intentionally want
 cumulative logs.
@@ -322,7 +318,6 @@ Useful read functions for Basescan or the live UI:
 
 ```text
 prompt()
-side_quest()
 original_deadline()
 deadline()
 max_deadline()
