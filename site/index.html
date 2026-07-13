@@ -9,7 +9,7 @@
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&family=IBM+Plex+Sans:wght@400;500;600&family=Newsreader:opsz,wght@6..72,500;6..72,650&display=swap" rel="stylesheet">
   <link rel="icon" type="image/svg+xml" href="favicon.svg">
-  <link rel="stylesheet" href="styles.css?v=23">
+  <link rel="stylesheet" href="styles.css?v=24">
   <script src="assets/ethers.umd.min.js"></script>
 </head>
 <body data-view="empty">
@@ -54,9 +54,11 @@
         <p class="empty-track-copy">No onchain activity to display</p>
       </div>
       <div class="timeline-key" id="timeline-key" hidden>
-        <span class="key"><i></i>Shot</span>
-        <span class="key now"><i></i>Latest block time</span>
-        <span class="key deadline"><i></i>Deadline boundary</span>
+        <span class="key shot-key"><i></i>Shot</span>
+        <span class="key now"><i></i>Now (latest block)</span>
+        <span class="key cutoff"><i></i><span id="cutoff-key-text">Prize cutoff + current end</span></span>
+        <span class="key current-end" id="current-end-key" hidden><i></i>Current end</span>
+        <span class="key overtime" id="overtime-key" hidden><i></i>Overtime</span>
       </div>
     </section>
 
@@ -104,6 +106,6 @@
 
   <footer><div class="shell" id="footer-state">BASE MAINNET / READ-ONLY PUBLIC VIEW / NO LIVE GAME</div></footer>
 
-  <script type="module" src="app.js?v=23"></script>
+  <script type="module" src="app.js?v=24"></script>
 </body>
 </html>

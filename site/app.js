@@ -216,7 +216,7 @@ function renderTimeline(state, shots, view) {
   }
 
   const start = state.startTime;
-  const end = Math.max(state.maxDeadline, state.deadline, state.originalDeadline, start + 1);
+  const end = Math.max(state.deadline, state.originalDeadline, start + 1);
   const originalPosition = timelinePosition(state.originalDeadline, start, end);
   const deadlinePosition = timelinePosition(state.deadline, start, end);
   const markerTime = ['expired', 'finalized', 'finalized-empty'].includes(view)
@@ -228,15 +228,15 @@ function renderTimeline(state, shots, view) {
     '<div class="timeline-rail"></div>',
     `<div class="timeline-progress" style="width:${markerPosition}%"></div>`,
   ];
-  if (state.maxDeadline > state.originalDeadline) {
+  const hasOvertime = state.deadline > state.originalDeadline;
+  if (hasOvertime) {
     parts.push(`<div class="overtime-zone" style="left:${originalPosition}%"></div>`);
   }
 
-  const sameDeadline = state.deadline === state.originalDeadline;
-  const originalLabel = sameDeadline ? 'LIVE / ORIGINAL DEADLINE' : 'ORIGINAL DEADLINE';
-  parts.push(`<div class="timeline-boundary${sameDeadline ? ' live' : ''}" style="left:${originalPosition}%"><span>${originalLabel}</span></div>`);
-  if (!sameDeadline) {
-    parts.push(`<div class="timeline-boundary live align-left" style="left:${deadlinePosition}%"><span>LIVE DEADLINE</span></div>`);
+  const cutoffLabel = hasOvertime ? 'PRIZE CUTOFF' : 'PRIZE CUTOFF / CURRENT END';
+  parts.push(`<div class="timeline-boundary cutoff${hasOvertime ? '' : ' current-end'}" style="left:${originalPosition}%"><span>${cutoffLabel}</span></div>`);
+  if (hasOvertime) {
+    parts.push(`<div class="timeline-boundary current-end align-left" style="left:${deadlinePosition}%"><span>CURRENT END</span></div>`);
   }
 
   shots.forEach((shot, index) => {
@@ -249,17 +249,20 @@ function renderTimeline(state, shots, view) {
   const endedTimeline = ['expired', 'finalized', 'finalized-empty'].includes(view);
   parts.push(`<div class="playhead${endedTimeline ? ' end' : ''}" style="left:${markerPosition}%" data-label="${endedTimeline ? 'END' : 'NOW'}"></div>`);
   parts.push(`<span class="timeline-start">START / ${escapeHtml(formatTimelineTime(start))}</span>`);
-  parts.push(`<span class="timeline-end">LATEST POSSIBLE END / ${escapeHtml(formatTimelineTime(end))}</span>`);
+  parts.push(`<span class="timeline-end">CURRENT END / ${escapeHtml(formatTimelineTime(end))}</span>`);
 
   const timeline = $('#timeline');
   timeline.className = 'timeline';
-  timeline.setAttribute('aria-label', `Game timeline with ${shots.length} confirmed shots`);
+  timeline.setAttribute('aria-label', `Current game window with ${shots.length} confirmed shots`);
   timeline.innerHTML = parts.join('');
   $('#timeline-key').hidden = false;
+  setText('#cutoff-key-text', hasOvertime ? 'Prize cutoff' : 'Prize cutoff + current end');
+  $('#current-end-key').hidden = !hasOvertime;
+  $('#overtime-key').hidden = !hasOvertime;
 
-  const extensionCopy = state.deadline > state.originalDeadline
-    ? `The live deadline has been extended. The latest possible end is ${formatDateTime(state.maxDeadline)}.`
-    : `The live and original deadlines are ${formatDateTime(state.originalDeadline)}. Late shots may extend play.`;
+  const extensionCopy = hasOvertime
+    ? `Prize growth stopped at ${formatDateTime(state.originalDeadline)}. Play currently ends at ${formatDateTime(state.deadline)} and cannot extend past ${formatDateTime(state.maxDeadline)}.`
+    : `Prize growth stops and play currently ends at ${formatDateTime(state.originalDeadline)}. Overtime cannot extend past ${formatDateTime(state.maxDeadline)}.`;
   const shotCopy = shots.length === state.shotSequence
     ? `${shots.length} confirmed shot${shots.length === 1 ? '' : 's'}.`
     : `Showing ${shots.length} of ${state.shotSequence} confirmed shots.`;

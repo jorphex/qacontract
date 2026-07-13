@@ -266,7 +266,7 @@ body[data-view="unfunded"] .status-value {
   bottom: 34px;
   border-left: 1px dashed #9b938b;
 }
-.timeline-boundary.live { border-left: 1px solid var(--good); }
+.timeline-boundary.current-end { border-left: 1px solid var(--good); }
 .timeline-boundary span {
   position: absolute;
   top: -25px;
@@ -275,7 +275,7 @@ body[data-view="unfunded"] .status-value {
   font-size: 12px;
   white-space: nowrap;
 }
-.timeline-boundary.live span { color: var(--good); }
+.timeline-boundary.current-end span { color: var(--good); }
 .timeline-boundary.align-left span { top: -7px; }
 .shot {
   top: 57px;
@@ -338,9 +338,16 @@ body[data-view="unfunded"] .status-value {
   font-size: 14px;
 }
 .key { display: flex; align-items: center; gap: 7px; }
-.key i { display: block; width: 14px; height: 1px; background: #d8d4cc; }
-.key.now i { height: 2px; background: var(--state-accent); }
-.key.deadline i { border-top: 1px dashed #9b938b; background: none; }
+.key i { display: block; width: 2px; height: 14px; background: #d8d4cc; }
+.key.now i { width: 3px; background: var(--state-accent); }
+.key.cutoff i { width: 1px; border-left: 1px dashed #9b938b; background: none; }
+.key.current-end i { width: 1px; background: var(--good); }
+.key.overtime i {
+  width: 14px;
+  height: 10px;
+  border: 1px solid var(--warning);
+  background: #211b0d;
+}
 
 .play-guide { padding: 46px 0 50px; border-bottom: 1px solid var(--line); }
 .guide-heading {
