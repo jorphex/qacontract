@@ -11,6 +11,8 @@ const REFRESH_MS = 3_000;
 const URGENT_REFRESH_MS = 1_000;
 const IDLE_REFRESH_MS = 10_000;
 const SETTLED_REFRESH_MS = 30_000;
+const TIMELINE_SWEEP_MS = 650;
+const TIMELINE_SWEEP_EASING = 'cubic-bezier(0.42, 0, 0.85, 0.45)';
 
 let provider = null;
 let contract = null;
@@ -25,6 +27,8 @@ let eventStartBlock = null;
 let refreshTimer = null;
 let clockTimer = null;
 let refreshing = false;
+let timelineFrame = null;
+let renderedShotSequences = new Set();
 
 const $ = (selector) => document.querySelector(selector);
 
@@ -215,6 +219,8 @@ function renderEmptyTimeline(message) {
   timeline.setAttribute('aria-label', message);
   timeline.innerHTML = `<p class="empty-track-copy">${escapeHtml(message)}</p>`;
   $('#timeline-key').hidden = true;
+  timelineFrame = null;
+  renderedShotSequences = new Set();
 }
 
 function setTimelineNote(parts) {
@@ -236,6 +242,47 @@ function timelineEdgeStyle(position, edgeInset = 0) {
   return position >= 100 ? `right:${edgeInset}px` : `left:${position}%`;
 }
 
+function prefersReducedMotion() {
+  return window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+}
+
+function animateTimelineAdvance(timeline, previousFrame, nextFrame, previousGeometry) {
+  if (
+    prefersReducedMotion()
+    || !previousFrame?.live
+    || !nextFrame.live
+    || previousFrame.start !== nextFrame.start
+    || previousFrame.end !== nextFrame.end
+    || nextFrame.progressPosition <= previousFrame.progressPosition
+  ) return;
+
+  const playhead = timeline.querySelector('.playhead');
+  const progress = timeline.querySelector('.timeline-progress');
+  if (
+    !playhead
+    || !progress
+    || typeof playhead.animate !== 'function'
+    || typeof progress.animate !== 'function'
+    || previousGeometry.playheadOffset === null
+  ) return;
+
+  const timelineLeft = timeline.getBoundingClientRect().left;
+  const nextPlayheadOffset = playhead.getBoundingClientRect().left - timelineLeft;
+  const offset = previousGeometry.playheadOffset - nextPlayheadOffset;
+  const options = {
+    duration: TIMELINE_SWEEP_MS,
+    easing: TIMELINE_SWEEP_EASING,
+  };
+  playhead.animate(
+    [{ transform: `translateX(${offset}px)` }, { transform: 'translateX(0)' }],
+    options,
+  );
+  progress.animate(
+    [{ width: `${previousGeometry.progressWidth}px` }, { width: `${progress.getBoundingClientRect().width}px` }],
+    options,
+  );
+}
+
 function renderTimeline(state, shots, view) {
   if (!state.started || !state.startTime) {
     const startMissed = view === 'missed-start';
@@ -250,6 +297,17 @@ function renderTimeline(state, shots, view) {
 
   const start = state.startTime;
   const end = Math.max(state.deadline, state.originalDeadline, start + 1);
+  const timeline = $('#timeline');
+  const previousFrame = timelineFrame;
+  const previousTimelineLeft = timeline.getBoundingClientRect().left;
+  const previousPlayhead = timeline.querySelector('.playhead');
+  const previousProgress = timeline.querySelector('.timeline-progress');
+  const previousGeometry = {
+    playheadOffset: previousPlayhead
+      ? previousPlayhead.getBoundingClientRect().left - previousTimelineLeft
+      : null,
+    progressWidth: previousProgress?.getBoundingClientRect().width || 0,
+  };
   const originalPosition = timelinePosition(state.originalDeadline, start, end);
   const deadlinePosition = timelinePosition(state.deadline, start, end);
   const endedTimeline = ['expired', 'finalized', 'finalized-empty'].includes(view);
@@ -276,9 +334,11 @@ function renderTimeline(state, shots, view) {
 
   shots.forEach((shot, index) => {
     const capturedAt = Number(shot.args.captured_at);
+    const sequence = Number(shot.args.sequence);
     const position = timelinePosition(capturedAt, start, end);
     const latest = index === shots.length - 1 ? ' latest' : '';
-    parts.push(`<i class="shot${latest}" style="${timelineEdgeStyle(position, 7)}" title="Shot ${Number(shot.args.sequence)} at ${escapeHtml(formatDateTime(capturedAt))}"></i>`);
+    const entering = previousFrame && !renderedShotSequences.has(sequence) ? ' entering' : '';
+    parts.push(`<i class="shot${latest}${entering}" data-sequence="${sequence}" style="${timelineEdgeStyle(position, 7)}" title="Shot ${sequence} at ${escapeHtml(formatDateTime(capturedAt))}"></i>`);
   });
 
   if (!endedTimeline) {
@@ -287,10 +347,13 @@ function renderTimeline(state, shots, view) {
   parts.push(`<span class="timeline-start">START / ${escapeHtml(formatTimelineTime(start))}</span>`);
   parts.push(`<span class="timeline-end">${endLabel} / ${escapeHtml(formatTimelineTime(end))}</span>`);
 
-  const timeline = $('#timeline');
   timeline.className = 'timeline';
   timeline.setAttribute('aria-label', `Current game window with ${shots.length} confirmed shots`);
   timeline.innerHTML = parts.join('');
+  const nextFrame = { start, end, progressPosition, live: !endedTimeline };
+  animateTimelineAdvance(timeline, previousFrame, nextFrame, previousGeometry);
+  timelineFrame = nextFrame;
+  renderedShotSequences = new Set(shots.map((shot) => Number(shot.args.sequence)));
   $('#timeline-key').hidden = false;
   $('#playhead-key').hidden = endedTimeline;
   $('.key.cutoff')?.classList.toggle('current-end', !hasOvertime);
