@@ -224,7 +224,10 @@ function renderTimeline(state, shots, view) {
     : Math.min(state.blockTimestamp, state.deadline);
   const markerPosition = Math.min(98, timelinePosition(markerTime, start, end));
 
-  const parts = ['<div class="timeline-rail"></div>'];
+  const parts = [
+    '<div class="timeline-rail"></div>',
+    `<div class="timeline-progress" style="width:${markerPosition}%"></div>`,
+  ];
   if (state.maxDeadline > state.originalDeadline) {
     parts.push(`<div class="overtime-zone" style="left:${originalPosition}%"></div>`);
   }
