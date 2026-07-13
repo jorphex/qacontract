@@ -47,6 +47,8 @@ body {
   overflow-x: hidden;
   -webkit-font-smoothing: antialiased;
 }
+body[data-ready="false"] main,
+body[data-ready="false"] footer { visibility: hidden; }
 a { color: inherit; transition: color 150ms ease, border-color 150ms ease, background-color 150ms ease; }
 button, a { -webkit-tap-highlight-color: transparent; }
 code { color: var(--ink); font-family: "IBM Plex Mono", monospace; font-size: 0.94em; }

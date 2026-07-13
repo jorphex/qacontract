@@ -33,6 +33,10 @@ function setText(selector, value) {
   if (element) element.textContent = value;
 }
 
+function markReady() {
+  document.body.dataset.ready = 'true';
+}
+
 function isAddress(value) {
   return typeof value === 'string' && value.toLowerCase() !== EMPTY_ADDRESS;
 }
@@ -509,6 +513,7 @@ function renderContractState(state, shots = cachedShots) {
   renderTimeline(state, shots, view);
   renderHistory(state, shots);
   renderFooter(state, view);
+  markReady();
 }
 
 function renderNoGame() {
@@ -526,6 +531,7 @@ function renderNoGame() {
   renderEmptyTimeline('No onchain activity to display');
   renderHistory(null, []);
   setText('#footer-state', `${networkName(config?.chainId || 8453)} / READ-ONLY PUBLIC VIEW / NO LIVE GAME`);
+  markReady();
 }
 
 function renderUnavailable(message) {
@@ -543,6 +549,7 @@ function renderUnavailable(message) {
   renderEmptyTimeline('Unable to load onchain activity');
   renderHistory(null, []);
   setText('#footer-state', `${networkName(config?.chainId || 8453)} / READ-ONLY PUBLIC VIEW / DATA UNAVAILABLE`);
+  markReady();
 }
 
 function renderFooter(state, view) {
