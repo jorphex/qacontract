@@ -243,24 +243,26 @@ function renderTimeline(state, shots, view) {
   const end = Math.max(state.deadline, state.originalDeadline, start + 1);
   const originalPosition = timelinePosition(state.originalDeadline, start, end);
   const deadlinePosition = timelinePosition(state.deadline, start, end);
-  const markerTime = ['expired', 'finalized', 'finalized-empty'].includes(view)
-    ? state.deadline
-    : Math.min(state.blockTimestamp, state.deadline);
-  const markerPosition = Math.min(98, timelinePosition(markerTime, start, end));
+  const endedTimeline = ['expired', 'finalized', 'finalized-empty'].includes(view);
+  const progressPosition = endedTimeline
+    ? 100
+    : timelinePosition(Math.min(state.blockTimestamp, state.deadline), start, end);
+  const playheadPosition = Math.min(98, progressPosition);
 
   const parts = [
     '<div class="timeline-rail"></div>',
-    `<div class="timeline-progress" style="width:${markerPosition}%"></div>`,
+    `<div class="timeline-progress" style="width:${progressPosition}%"></div>`,
   ];
   const hasOvertime = state.deadline > state.originalDeadline;
   if (hasOvertime) {
     parts.push(`<div class="overtime-zone" style="left:${originalPosition}%"></div>`);
   }
 
-  const cutoffLabel = hasOvertime ? 'PRIZE CUTOFF' : 'PRIZE CUTOFF / CURRENT END';
+  const endLabel = endedTimeline ? 'GAME END' : 'CURRENT END';
+  const cutoffLabel = hasOvertime ? 'PRIZE CUTOFF' : `PRIZE CUTOFF / ${endLabel}`;
   parts.push(`<div class="timeline-boundary cutoff${hasOvertime ? '' : ' current-end'}" style="${timelineBoundaryStyle(originalPosition)}"><span>${cutoffLabel}</span></div>`);
   if (hasOvertime) {
-    parts.push(`<div class="timeline-boundary current-end align-left" style="${timelineBoundaryStyle(deadlinePosition)}"><span>CURRENT END</span></div>`);
+    parts.push(`<div class="timeline-boundary current-end align-left" style="${timelineBoundaryStyle(deadlinePosition)}"><span>${endLabel}</span></div>`);
   }
 
   shots.forEach((shot, index) => {
@@ -270,19 +272,21 @@ function renderTimeline(state, shots, view) {
     parts.push(`<i class="shot${latest}" style="left:${position}%" title="Shot ${Number(shot.args.sequence)} at ${escapeHtml(formatDateTime(capturedAt))}"></i>`);
   });
 
-  const endedTimeline = ['expired', 'finalized', 'finalized-empty'].includes(view);
-  parts.push(`<div class="playhead${endedTimeline ? ' end' : ''}" style="left:${markerPosition}%" data-label="${endedTimeline ? 'END' : 'NOW'}"></div>`);
+  if (!endedTimeline) {
+    parts.push(`<div class="playhead${playheadPosition > 85 ? ' align-end' : ''}" style="left:${playheadPosition}%" data-label="LATEST BLOCK"></div>`);
+  }
   parts.push(`<span class="timeline-start">START / ${escapeHtml(formatTimelineTime(start))}</span>`);
-  parts.push(`<span class="timeline-end">CURRENT END / ${escapeHtml(formatTimelineTime(end))}</span>`);
+  parts.push(`<span class="timeline-end">${endLabel} / ${escapeHtml(formatTimelineTime(end))}</span>`);
 
   const timeline = $('#timeline');
   timeline.className = 'timeline';
   timeline.setAttribute('aria-label', `Current game window with ${shots.length} confirmed shots`);
   timeline.innerHTML = parts.join('');
   $('#timeline-key').hidden = false;
+  $('#playhead-key').hidden = endedTimeline;
   $('.key.cutoff')?.classList.toggle('current-end', !hasOvertime);
-  setText('#playhead-key-text', endedTimeline ? 'End' : 'Now (latest block)');
-  setText('#cutoff-key-text', hasOvertime ? 'Prize cutoff' : 'Prize cutoff + current end');
+  setText('#cutoff-key-text', hasOvertime ? 'Prize cutoff' : `Prize cutoff + ${endedTimeline ? 'game end' : 'current end'}`);
+  setText('#current-end-key-text', endedTimeline ? 'Game end' : 'Current end');
   $('#current-end-key').hidden = !hasOvertime;
   $('#overtime-key').hidden = !hasOvertime;
 
@@ -292,11 +296,11 @@ function renderTimeline(state, shots, view) {
   const timingParts = hasOvertime
     ? [
       `Prize cutoff ${formatCompactDateTime(state.originalDeadline)}`,
-      `Current end ${formatCompactDateTime(state.deadline)}`,
+      `${endedTimeline ? 'Game end' : 'Current end'} ${formatCompactDateTime(state.deadline)}`,
       `Overtime cap ${formatCompactDateTime(state.maxDeadline)}`,
     ]
     : [
-      `Cutoff / current end ${formatCompactDateTime(state.originalDeadline)}`,
+      `Cutoff / ${endedTimeline ? 'game end' : 'current end'} ${formatCompactDateTime(state.originalDeadline)}`,
       `Overtime cap ${formatCompactDateTime(state.maxDeadline)}`,
     ];
   setTimelineNote([shotCopy, ...timingParts]);
@@ -756,6 +760,10 @@ function buildPreview(name) {
   if (name === 'expired') {
     const state = { ...base, startTime: now - 4_200, originalDeadline: now - 600, deadline: now - 60, maxDeadline: now - 60, gameDuration: 3_600, kingSince: now - 200, shotSequence: 6, kingPrize: 1n * unit };
     return { state, shots: makeShots([now - 3_500, now - 2_500, now - 1_600, now - 800, now - 500, now - 200]) };
+  }
+  if (name === 'expired-no-overtime') {
+    const state = { ...base, startTime: now - 3_660, originalDeadline: now - 60, deadline: now - 60, maxDeadline: now + 240, gameDuration: 3_600, kingSince: now - 200, shotSequence: 5, kingPrize: 1n * unit };
+    return { state, shots: makeShots([now - 3_200, now - 2_500, now - 1_600, now - 800, now - 200]) };
   }
   if (name === 'finalized' || name === 'finalized-empty') {
     const winner = name === 'finalized' ? addresses[1] : null;

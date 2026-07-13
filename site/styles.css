@@ -322,7 +322,7 @@ body[data-view="unfunded"] .status-value {
   font-weight: 600;
   white-space: nowrap;
 }
-.playhead.end::before { right: 8px; left: auto; }
+.playhead.align-end::before { right: 8px; left: auto; }
 .playhead::after {
   content: "";
   position: absolute;
