@@ -293,8 +293,13 @@ Clawback is allowed before start after funding, or after finalization.
 
 ## Live Site
 
-The read-only frontend in `site/` can show real contract state. It talks to a
-local RPC proxy so the Alchemy key never reaches the browser.
+The read-only frontend in `site/` renders the full game lifecycle: no configured
+game, funded/not-started, live, overtime, expired/awaiting `finalize()`, and
+finalized winner or no-winner outcomes. Public reads, `Shot` events, transaction
+links, deadlines, and provider block metadata drive the display. Shot answer
+calldata is intentionally omitted from the site but remains inspectable on
+Basescan. The frontend talks to a local RPC proxy so the Alchemy key never
+reaches the browser.
 
 Set in `.env`:
 
@@ -304,6 +309,8 @@ CHAIN_ID=8453
 ```
 
 The site reuses the existing `KINGOFTHEHILL_ADDRESS` as the contract address.
+When it is unset or the zero address, the site shows its empty state and does not
+poll the RPC proxy.
 
 Serve it:
 

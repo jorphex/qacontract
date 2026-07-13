@@ -45,12 +45,12 @@ def serve(port: int):
     configured, reason = _is_configured()
     if not configured:
         print(f"Warning: {reason}; /api/rpc will return an error.", file=sys.stderr)
-        print("The static site will still serve and the frontend will fall back to mock data.", file=sys.stderr)
+        print("The static site will still serve and the frontend will show its empty state.", file=sys.stderr)
 
     socketserver.TCPServer.allow_reuse_address = True
     with socketserver.TCPServer(("", port), Handler) as httpd:
         print(f"Serving site at http://0.0.0.0:{port}")
-        print(f"Proxying /api/rpc -> {RPC_URL.split('?')[0] if RPC_URL else '<not configured>'}")
+        print(f"Proxying /api/rpc -> {'configured upstream' if RPC_URL else '<not configured>'}")
         httpd.serve_forever()
 
 

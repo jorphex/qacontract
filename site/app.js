@@ -1,913 +1,773 @@
-// King of the Hill v5.2 - prototype viewer wired to the live contract.
+// King of the Hill v5.2 read-only contract viewer.
 
 const ERC20_ABI = [
   'function decimals() view returns (uint8)',
   'function symbol() view returns (string)',
-  'function balanceOf(address) view returns (uint256)',
 ];
 
-const EMPTY_ADDRESS = '0x' + '0'.repeat(40);
+const EMPTY_ADDRESS = `0x${'0'.repeat(40)}`;
+const EVENT_LOOKBACK_BLOCKS = 200_000;
+const REFRESH_MS = 3_000;
+const URGENT_REFRESH_MS = 1_000;
+const IDLE_REFRESH_MS = 10_000;
+const SETTLED_REFRESH_MS = 30_000;
 
-let provider, contract, tokenContract;
-let useMock = false;
-let state = {};
+let provider = null;
+let contract = null;
+let tokenContract = null;
+let tokenMetadata = null;
+let config = null;
+let explorerBase = 'https://basescan.org';
+let viewState = null;
+let cachedShots = [];
+let cachedShotSequence = -1;
+let eventStartBlock = null;
 let refreshTimer = null;
-let countdownTimer = null;
-let lastShotSequence = 0;
-let startBlock = null;
-const BASE_INTERVAL = 3000;
-const ACTIVE_INTERVAL = 1000;
-const IDLE_INTERVAL = 10000;
-let currentInterval = BASE_INTERVAL;
+let clockTimer = null;
+let refreshing = false;
 
-// ── Helpers ────────────────────────────────────────────────
-const $ = (sel) => document.querySelector(sel);
-const addrShort = (a) => a && a !== EMPTY_ADDRESS ? `${a.slice(0, 6)}…${a.slice(-4)}` : 'No king';
+const $ = (selector) => document.querySelector(selector);
 
-function fmtTime(ts) {
-  const d = new Date(ts * 1000);
-  return d.toLocaleString('en-US', {
-    month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit', second: '2-digit',
-  });
+function setText(selector, value) {
+  const element = $(selector);
+  if (element) element.textContent = value;
+}
+
+function isAddress(value) {
+  return typeof value === 'string' && value.toLowerCase() !== EMPTY_ADDRESS;
+}
+
+function shortHex(value, head = 6, tail = 4) {
+  if (!value) return '-';
+  return `${value.slice(0, head)}...${value.slice(-tail)}`;
+}
+
+function escapeHtml(value) {
+  return String(value)
+    .replaceAll('&', '&amp;')
+    .replaceAll('<', '&lt;')
+    .replaceAll('>', '&gt;')
+    .replaceAll('"', '&quot;')
+    .replaceAll("'", '&#039;');
+}
+
+function formatToken(raw, decimals = 18, symbol = '') {
+  if (raw === null || raw === undefined) return '-';
+  const numeric = Number(ethers.formatUnits(raw, decimals));
+  const maximumFractionDigits = numeric >= 1 ? 2 : 6;
+  const amount = numeric.toLocaleString(undefined, { maximumFractionDigits });
+  return `${amount}${symbol ? ` ${symbol}` : ''}`;
+}
+
+function formatCountdown(seconds) {
+  const safe = Math.max(0, Math.floor(seconds));
+  const days = Math.floor(safe / 86_400);
+  const hours = Math.floor((safe % 86_400) / 3_600);
+  const minutes = Math.floor((safe % 3_600) / 60);
+  const secs = safe % 60;
+  const clock = [hours, minutes, secs].map((part) => String(part).padStart(2, '0')).join(':');
+  return days ? `${days}d ${clock}` : clock;
 }
 
 function formatDuration(seconds) {
-  if (seconds <= 0) return '0s';
-  const d = Math.floor(seconds / 86400);
-  const h = Math.floor((seconds % 86400) / 3600);
-  const m = Math.floor((seconds % 3600) / 60);
-  const s = Math.floor(seconds % 60);
+  const safe = Math.max(0, Math.floor(seconds));
+  const days = Math.floor(safe / 86_400);
+  const hours = Math.floor((safe % 86_400) / 3_600);
+  const minutes = Math.floor((safe % 3_600) / 60);
+  const secs = safe % 60;
   const parts = [];
-  if (d) parts.push(`${d}d`);
-  if (h) parts.push(`${h}h`);
-  if (m) parts.push(`${m}m`);
-  if (s || !parts.length) parts.push(`${s}s`);
+  if (days) parts.push(`${days}d`);
+  if (hours) parts.push(`${hours}h`);
+  if (minutes) parts.push(`${minutes}m`);
+  if (secs || parts.length === 0) parts.push(`${secs}s`);
   return parts.join(' ');
 }
 
-function formatToken(raw) {
-  if (raw === undefined || raw === null) return '-';
-  const val = Number(raw) / Math.pow(10, state.tokenDecimals || 18);
-  if (val >= 1000) return `${val.toLocaleString(undefined, { maximumFractionDigits: 0 })} ${state.tokenSymbol || ''}`.trim();
-  if (val >= 1) return `${val.toLocaleString(undefined, { maximumFractionDigits: 2 })} ${state.tokenSymbol || ''}`.trim();
-  return `${val.toLocaleString(undefined, { maximumFractionDigits: 6 })} ${state.tokenSymbol || ''}`.trim();
+function formatDateTime(timestamp) {
+  if (!timestamp) return '-';
+  return new Date(timestamp * 1_000).toLocaleString(undefined, {
+    month: 'short',
+    day: 'numeric',
+    hour: '2-digit',
+    minute: '2-digit',
+    second: '2-digit',
+  });
 }
 
-function nowSeconds() {
-  return Math.floor(Date.now() / 1000);
+function formatTimelineTime(timestamp) {
+  if (!timestamp) return '-';
+  return new Date(timestamp * 1_000).toLocaleTimeString(undefined, {
+    hour: '2-digit',
+    minute: '2-digit',
+    second: '2-digit',
+  });
 }
 
-function curveValue(elapsed, floor, max, duration, exponent) {
-  if (!duration || elapsed <= 0) return floor;
-  const p = Math.min(elapsed / duration, 1);
-  let curve = p;
-  if (exponent === 2) curve = p * p;
-  else if (exponent === 3) curve = p * p * p;
-  return floor + (max - floor) * curve;
+function chainNow() {
+  if (!viewState?.blockTimestamp) return Math.floor(Date.now() / 1_000);
+  const elapsed = Math.max(0, Math.floor((Date.now() - viewState.observedAt) / 1_000));
+  return viewState.blockTimestamp + elapsed;
 }
 
-// ── Config ─────────────────────────────────────────────────
-async function loadConfig() {
-  const [configRes, abiRes] = await Promise.all([
-    fetch('/api/config'),
-    fetch('/abi.json'),
-  ]);
-  if (!configRes.ok || !abiRes.ok) throw new Error('config or ABI not available');
-  const cfg = await configRes.json();
-  const abi = await abiRes.json();
-  if (!cfg.contractAddress || cfg.contractAddress.toLowerCase() === EMPTY_ADDRESS) {
-    throw new Error('contract address not configured');
-  }
-  if (!cfg.rpcProxyUrl) throw new Error('RPC proxy not configured');
-  return { config: cfg, abi };
+function prizeForHold(holdSeconds, state = viewState) {
+  const duration = BigInt(Math.max(0, state?.gameDuration || 0));
+  const floor = state?.floorAmount ?? 0n;
+  const max = state?.maxAmount ?? 0n;
+  if (duration === 0n) return 0n;
+  if (floor === max || BigInt(Math.max(0, holdSeconds)) >= duration) return max;
+
+  const progress = BigInt(Math.max(0, holdSeconds)) * 10_000n / duration;
+  let curve = progress;
+  if (state.curveExponent >= 2) curve = progress * progress / 10_000n;
+  if (state.curveExponent >= 3) curve = curve * progress / 10_000n;
+  return floor + (max - floor) * curve / 10_000n;
 }
 
-// ── WebGL Background ─────────────────────────────────────
-function initBackground() {
-  const canvas = $('#gl');
-  if (!canvas) return;
-  const gl = canvas.getContext('webgl', { alpha: true, antialias: false, premultipliedAlpha: false });
-  if (!gl) return;
+function explorerForChain(chainId) {
+  if (chainId === 84532) return 'https://sepolia.basescan.org';
+  if (chainId === 11155111) return 'https://sepolia.etherscan.io';
+  return 'https://basescan.org';
+}
 
-  function resize() {
-    const dpr = Math.min(window.devicePixelRatio || 1, 2);
-    canvas.width = window.innerWidth * dpr;
-    canvas.height = window.innerHeight * dpr;
-    gl.viewport(0, 0, canvas.width, canvas.height);
-  }
-  resize();
-  window.addEventListener('resize', resize);
+function networkName(chainId) {
+  if (chainId === 84532) return 'BASE SEPOLIA';
+  if (chainId === 11155111) return 'SEPOLIA';
+  if (chainId === 8453) return 'BASE MAINNET';
+  return `CHAIN ${chainId}`;
+}
 
-  const vsSource = `
-    attribute vec2 aPos;
-    void main() { gl_Position = vec4(aPos, 0.0, 1.0); }
-  `;
+function contractUrl(address = config?.contractAddress) {
+  return address ? `${explorerBase}/address/${address}` : explorerBase;
+}
 
-  const fsSource = `
-    precision mediump float;
-    uniform float uTime;
-    uniform vec2 uRes;
-    uniform vec2 uMouse;
-    void main() {
-      vec2 uv = gl_FragCoord.xy / uRes;
-      vec2 mouse = uMouse / uRes;
-      vec3 col = vec3(0.02, 0.012, 0.025);
-      float t = uTime * 0.03;
-      col += vec3(0.06, 0.02, 0.07) * sin(uv.y * 2.0 + uv.x * 0.8 + t);
-      col += vec3(0.03, 0.015, 0.05) * cos(uv.x * 1.5 - uv.y * 1.2 + t * 0.6);
-      float dist = length(uv - mouse);
-      float glow = smoothstep(0.5, 0.0, dist);
-      col += vec3(0.12, 0.05, 0.02) * glow;
-      float centerGlow = smoothstep(0.5, 0.0, length(uv - 0.5));
-      col += vec3(0.05, 0.02, 0.01) * centerGlow * (0.6 + 0.4 * sin(uTime * 0.12));
-      gl_FragColor = vec4(col, 1.0);
-    }
-  `;
+function txUrl(hash) {
+  return `${explorerBase}/tx/${hash}`;
+}
 
-  function compile(src, type) {
-    const s = gl.createShader(type);
-    gl.shaderSource(s, src);
-    gl.compileShader(s);
-    if (!gl.getShaderParameter(s, gl.COMPILE_STATUS)) {
-      console.warn('Shader compile failed:', gl.getShaderInfoLog(s));
-      return null;
-    }
-    return s;
-  }
+function addressUrl(address) {
+  return `${explorerBase}/address/${address}`;
+}
 
-  const vs = compile(vsSource, gl.VERTEX_SHADER);
-  const fs = compile(fsSource, gl.FRAGMENT_SHADER);
-  if (!vs || !fs) return;
+function setContractLinks(enabled) {
+  const navLink = $('#contract-link-nav');
+  const actionLink = $('#contract-link');
+  const url = enabled ? contractUrl() : explorerBase;
+  if (navLink) navLink.href = url;
+  if (!actionLink) return;
 
-  const prog = gl.createProgram();
-  gl.attachShader(prog, vs);
-  gl.attachShader(prog, fs);
-  gl.linkProgram(prog);
-  if (!gl.getProgramParameter(prog, gl.LINK_STATUS)) {
-    console.warn('Program link failed:', gl.getShaderInfoLog(prog));
+  actionLink.href = url;
+  actionLink.classList.toggle('disabled', !enabled);
+  actionLink.setAttribute('aria-disabled', enabled ? 'false' : 'true');
+  actionLink.textContent = enabled ? 'Open verified contract ->' : 'Contract link appears when live';
+}
+
+function setKicker(text, tone = 'inactive') {
+  const kicker = $('#state-kicker');
+  if (!kicker) return;
+  kicker.classList.remove('inactive', 'warning');
+  if (tone) kicker.classList.add(tone);
+  setText('#state-kicker-text', text);
+}
+
+function setHero({ kicker, tone, heading, holder, holderNeutral = false, label, value, valueTimer = false, copy }) {
+  setKicker(kicker, tone);
+  setText('#state-heading', heading);
+  setText('#holder', holder);
+  $('#holder')?.classList.toggle('neutral', holderNeutral);
+  setText('#status-label', label);
+  setText('#status-value', value);
+  $('#status-value')?.classList.toggle('timer', valueTimer);
+  setText('#status-copy', copy);
+}
+
+function setMetrics(metrics = null) {
+  const scoreline = $('#scoreline');
+  if (!scoreline) return;
+  scoreline.hidden = !metrics;
+  if (!metrics) return;
+
+  const slots = ['primary', 'two', 'three', 'four'];
+  slots.forEach((slot, index) => {
+    setText(`#metric-${slot}-label`, metrics[index].label);
+    setText(`#metric-${slot}`, metrics[index].value);
+  });
+}
+
+function renderEmptyTimeline(message) {
+  const timeline = $('#timeline');
+  if (!timeline) return;
+  timeline.className = 'timeline empty';
+  timeline.setAttribute('aria-label', message);
+  timeline.innerHTML = `<p class="empty-track-copy">${escapeHtml(message)}</p>`;
+  $('#timeline-key').hidden = true;
+}
+
+function timelinePosition(timestamp, start, end) {
+  if (end <= start) return 0;
+  return Math.max(0, Math.min(100, ((timestamp - start) / (end - start)) * 100));
+}
+
+function renderTimeline(state, shots, view) {
+  if (!state.started || !state.startTime) {
+    setText('#timeline-note', 'Confirmed shoot() transactions appear here after a game starts.');
+    renderEmptyTimeline(view === 'cancelled' ? 'Game ended before it started' : 'No onchain activity to display');
     return;
   }
-  gl.useProgram(prog);
 
-  const buf = gl.createBuffer();
-  gl.bindBuffer(gl.ARRAY_BUFFER, buf);
-  gl.bufferData(gl.ARRAY_BUFFER, new Float32Array([-1, -1, 1, -1, -1, 1, 1, 1]), gl.STATIC_DRAW);
-  const aPos = gl.getAttribLocation(prog, 'aPos');
-  gl.enableVertexAttribArray(aPos);
-  gl.vertexAttribPointer(aPos, 2, gl.FLOAT, false, 0, 0);
+  const start = state.startTime;
+  const end = Math.max(state.maxDeadline, state.deadline, state.originalDeadline, start + 1);
+  const originalPosition = timelinePosition(state.originalDeadline, start, end);
+  const deadlinePosition = timelinePosition(state.deadline, start, end);
+  const markerTime = ['expired', 'finalized', 'finalized-empty'].includes(view)
+    ? state.deadline
+    : Math.min(state.blockTimestamp, state.deadline);
+  const markerPosition = Math.min(98, timelinePosition(markerTime, start, end));
 
-  const uTime = gl.getUniformLocation(prog, 'uTime');
-  const uRes = gl.getUniformLocation(prog, 'uRes');
-  const uMouse = gl.getUniformLocation(prog, 'uMouse');
-  if (uTime === null || uRes === null || uMouse === null) return;
+  const parts = ['<div class="timeline-rail"></div>'];
+  if (state.maxDeadline > state.originalDeadline) {
+    parts.push(`<div class="overtime-zone" style="left:${originalPosition}%"></div>`);
+  }
 
-  let mx = window.innerWidth / 2;
-  let my = window.innerHeight / 2;
-  let targetMx = mx;
-  let targetMy = my;
+  const sameDeadline = state.deadline === state.originalDeadline;
+  const originalLabel = sameDeadline ? 'LIVE / ORIGINAL DEADLINE' : 'ORIGINAL DEADLINE';
+  parts.push(`<div class="timeline-boundary${sameDeadline ? ' live' : ''}" style="left:${originalPosition}%"><span>${originalLabel}</span></div>`);
+  if (!sameDeadline) {
+    parts.push(`<div class="timeline-boundary live align-left" style="left:${deadlinePosition}%"><span>LIVE DEADLINE</span></div>`);
+  }
 
-  window.addEventListener('mousemove', (e) => {
-    targetMx = e.clientX * (window.devicePixelRatio || 1);
-    targetMy = e.clientY * (window.devicePixelRatio || 1);
+  shots.forEach((shot, index) => {
+    const capturedAt = Number(shot.args.captured_at);
+    const position = timelinePosition(capturedAt, start, end);
+    const latest = index === shots.length - 1 ? ' latest' : '';
+    parts.push(`<i class="shot${latest}" style="left:${position}%" title="Shot ${Number(shot.args.sequence)} at ${escapeHtml(formatDateTime(capturedAt))}"></i>`);
   });
 
-  let start = performance.now();
-  function frame() {
-    mx += (targetMx - mx) * 0.015;
-    my += (targetMy - my) * 0.015;
-    const time = (performance.now() - start) / 1000;
-    gl.uniform1f(uTime, time);
-    gl.uniform2f(uRes, canvas.width, canvas.height);
-    gl.uniform2f(uMouse, mx, my);
-    gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4);
-    requestAnimationFrame(frame);
-  }
-  frame();
+  const endedTimeline = ['expired', 'finalized', 'finalized-empty'].includes(view);
+  parts.push(`<div class="playhead${endedTimeline ? ' end' : ''}" style="left:${markerPosition}%" data-label="${endedTimeline ? 'END' : 'NOW'}"></div>`);
+  parts.push(`<span class="timeline-start">START / ${escapeHtml(formatTimelineTime(start))}</span>`);
+  parts.push(`<span class="timeline-end">LATEST POSSIBLE END / ${escapeHtml(formatTimelineTime(end))}</span>`);
+
+  const timeline = $('#timeline');
+  timeline.className = 'timeline';
+  timeline.setAttribute('aria-label', `Game timeline with ${shots.length} confirmed shots`);
+  timeline.innerHTML = parts.join('');
+  $('#timeline-key').hidden = false;
+
+  const extensionCopy = state.deadline > state.originalDeadline
+    ? `The live deadline has been extended. The latest possible end is ${formatDateTime(state.maxDeadline)}.`
+    : `The live and original deadlines are ${formatDateTime(state.originalDeadline)}. Late shots may extend play.`;
+  const shotCopy = shots.length === state.shotSequence
+    ? `${shots.length} confirmed shot${shots.length === 1 ? '' : 's'}.`
+    : `Showing ${shots.length} of ${state.shotSequence} confirmed shots.`;
+  setText('#timeline-note', `${shotCopy} ${extensionCopy}`);
 }
 
-// ── Prize Curve Canvas ────────────────────────────────────
-function drawCurve(startTime, deadline, originalDeadline, floorAmount, maxAmount, currentPrize, exponent, reigns, paidAmount, ended) {
-  const canvas = $('#prize-canvas');
-  if (!canvas) return;
-  const ctx = canvas.getContext('2d');
-  const dpr = window.devicePixelRatio || 1;
-  const rect = canvas.getBoundingClientRect();
-  canvas.width = rect.width * dpr;
-  canvas.height = rect.height * dpr;
-  ctx.scale(dpr, dpr);
-  const W = rect.width;
-  const H = rect.height;
-  const pad = { top: 24, right: 20, bottom: 28, left: 52 };
-  const plotW = W - pad.left - pad.right;
-  const plotH = H - pad.top - pad.bottom;
+function renderHistory(state, shots) {
+  const empty = $('#history-empty');
+  const wrap = $('#ledger-wrap');
+  const tbody = $('#history-body');
+  const historyLink = $('#history-link');
+  if (!empty || !wrap || !tbody) return;
 
-  ctx.clearRect(0, 0, W, H);
-
-  const yMax = Math.max(maxAmount, currentPrize, paidAmount || 0) * 1.1 || 1;
-  const totalDuration = Math.max(1, deadline - startTime);
-  const originalDuration = originalDeadline > startTime ? originalDeadline - startTime : totalDuration;
-  const gameDuration = state.gameDuration || originalDuration;
-  const capTs = originalDeadline > startTime ? originalDeadline : deadline;
-
-  const toX = (ts) => {
-    const x = pad.left + ((ts - startTime) / totalDuration) * plotW;
-    return Math.max(pad.left, Math.min(W - pad.right, x));
-  };
-  const toY = (val) => pad.top + plotH - ((val / yMax) * plotH);
-  const clampedElapsed = (ts, reignStart) => Math.max(0, Math.min(ts, capTs) - reignStart);
-
-  // Grid lines
-  ctx.strokeStyle = 'rgba(255,251,245,0.04)';
-  ctx.lineWidth = 1;
-  const gridSteps = 4;
-  for (let i = 0; i <= gridSteps; i++) {
-    const y = pad.top + (plotH / gridSteps) * i;
-    ctx.beginPath();
-    ctx.moveTo(pad.left, y);
-    ctx.lineTo(W - pad.right, y);
-    ctx.stroke();
-
-    const val = yMax - (yMax / gridSteps) * i;
-    ctx.fillStyle = 'rgba(255,251,245,0.25)';
-    ctx.font = '11px "JetBrains Mono", monospace';
-    ctx.textAlign = 'right';
-    ctx.textBaseline = 'middle';
-    let label;
-    if (val === 0) label = '0';
-    else if (val < 1) label = val.toFixed(2);
-    else if (val < 1000) label = val.toFixed(0);
-    else label = `${(val / 1000).toFixed(1)}k`;
-    ctx.fillText(label, pad.left - 8, y);
+  if (!shots.length) {
+    empty.hidden = false;
+    empty.textContent = state?.shotSequence > 0
+      ? 'Capture events are temporarily unavailable. Use the verified contract on Basescan for the complete history.'
+      : state?.started
+        ? 'No captures yet. The hill is open, but no shoot() transaction has been confirmed.'
+      : 'No captures yet. Confirmed transactions will be listed here when the hill opens.';
+    wrap.hidden = true;
+    if (historyLink) historyLink.hidden = true;
+    tbody.replaceChildren();
+    return;
   }
 
-  // Axes
-  ctx.strokeStyle = 'rgba(255,251,245,0.2)';
-  ctx.lineWidth = 1;
-  ctx.beginPath();
-  ctx.moveTo(pad.left, pad.top);
-  ctx.lineTo(pad.left, pad.top + plotH);
-  ctx.lineTo(W - pad.right, pad.top + plotH);
-  ctx.stroke();
-
-  // X labels
-  ctx.textAlign = 'center';
-  ctx.textBaseline = 'top';
-  for (let i = 0; i <= 4; i++) {
-    const pct = i / 4;
-    const x = pad.left + pct * plotW;
-    ctx.fillStyle = 'rgba(255,251,245,0.25)';
-    ctx.fillText(`${Math.round(pct * 100)}%`, x, H - pad.bottom + 10);
-  }
-
-  // Reference lines
-  const floorY = toY(floorAmount);
-  ctx.beginPath();
-  ctx.setLineDash([4, 4]);
-  ctx.moveTo(pad.left, floorY);
-  ctx.lineTo(W - pad.right, floorY);
-  ctx.strokeStyle = 'rgba(255, 123, 0, 0.3)';
-  ctx.lineWidth = 1;
-  ctx.stroke();
-  ctx.setLineDash([]);
-
-  const maxY = toY(maxAmount);
-  ctx.beginPath();
-  ctx.setLineDash([6, 6]);
-  ctx.moveTo(pad.left, maxY);
-  ctx.lineTo(W - pad.right, maxY);
-  ctx.strokeStyle = 'rgba(255, 251, 245, 0.12)';
-  ctx.lineWidth = 1;
-  ctx.stroke();
-  ctx.setLineDash([]);
-
-  ctx.fillStyle = 'rgba(255,251,245,0.25)';
-  ctx.font = 'bold 10px "JetBrains Mono", monospace';
-  ctx.textAlign = 'left';
-  ctx.fillText('FLOOR', pad.left + 6, floorY - 8);
-  ctx.fillText('MAX', pad.left + 6, maxY - 8);
-
-  // Overtime shading (drawn behind reign lines)
-  let originalX = null;
-  if (originalDeadline > startTime && originalDeadline < deadline) {
-    originalX = toX(originalDeadline);
-    ctx.fillStyle = 'rgba(255, 123, 0, 0.05)';
-    ctx.fillRect(originalX, pad.top, (W - pad.right) - originalX, plotH);
-  }
-
-  // Ghost curve: shows prize growth before the first shot
-  let liveReigns = reigns || [];
-  let isGhost = false;
-  if (liveReigns.length === 0 && state.started && !state.ended && startTime > 0) {
-    const nowTs = Math.min(nowSeconds(), deadline);
-    if (nowTs > startTime) {
-      liveReigns = [{ start: startTime, end: nowTs, player: null }];
-      isGhost = true;
-    }
-  }
-
-  if (liveReigns.length === 0) return;
-
-  // Gradient fill under each reign segment
-  const gradient = ctx.createLinearGradient(0, pad.top, 0, pad.top + plotH);
-  gradient.addColorStop(0, 'rgba(255, 123, 0, 0.60)');
-  gradient.addColorStop(1, 'rgba(255, 123, 0, 0.12)');
-
-  liveReigns.forEach((reign) => {
-    const startX = toX(reign.start);
-    const endX = toX(reign.end);
-    ctx.beginPath();
-    ctx.moveTo(startX, floorY);
-    const steps = 40;
-    for (let i = 0; i <= steps; i++) {
-      const ts = reign.start + ((reign.end - reign.start) * i) / steps;
-      const elapsed = clampedElapsed(ts, reign.start);
-      const val = curveValue(elapsed, floorAmount, maxAmount, gameDuration, exponent);
-      ctx.lineTo(toX(ts), toY(val));
-    }
-    ctx.lineTo(endX, floorY);
-    ctx.closePath();
-    ctx.fillStyle = gradient;
-    ctx.fill();
+  const rows = shots.slice(-10).reverse().map((shot) => {
+    const sequence = Number(shot.args.sequence);
+    const index = shots.findIndex((candidate) => Number(candidate.args.sequence) === sequence);
+    const capturedAt = Number(shot.args.captured_at);
+    const previousCapture = index > 0 ? Number(shots[index - 1].args.captured_at) : null;
+    const hold = previousCapture === null
+      ? null
+      : Math.max(0, Math.min(capturedAt, state.originalDeadline) - previousCapture);
+    const visiblePrize = hold === null ? '-' : formatToken(prizeForHold(hold, state), state.tokenDecimals, state.tokenSymbol);
+    const overtime = capturedAt > state.originalDeadline;
+    const player = String(shot.args.player);
+    const hash = shot.transactionHash || shot.log?.transactionHash || '';
+    return `
+      <tr>
+        <td title="${escapeHtml(formatDateTime(capturedAt))}">${escapeHtml(formatTimelineTime(capturedAt))}${overtime ? ' <span class="ot">OT</span>' : ''}</td>
+        <td><a href="${addressUrl(player)}" target="_blank" rel="noopener">${escapeHtml(shortHex(player))}</a></td>
+        <td>${hash ? `<a href="${txUrl(hash)}" target="_blank" rel="noopener">${escapeHtml(shortHex(hash))}</a>` : '-'}</td>
+        <td>${escapeHtml(visiblePrize)}</td>
+      </tr>`;
   });
 
-  // Draw each reign line
-  liveReigns.forEach((reign, idx) => {
-    const startX = toX(reign.start);
-    const endX = toX(reign.end);
-
-    ctx.beginPath();
-    ctx.strokeStyle = isGhost ? 'rgba(255, 123, 0, 0.55)' : '#ff7b00';
-    ctx.lineWidth = 2.5;
-    if (isGhost) ctx.setLineDash([6, 4]);
-    const steps = 60;
-    for (let i = 0; i <= steps; i++) {
-      const ts = reign.start + ((reign.end - reign.start) * i) / steps;
-      const elapsed = clampedElapsed(ts, reign.start);
-      const val = curveValue(elapsed, floorAmount, maxAmount, gameDuration, exponent);
-      const x = toX(ts);
-      const y = toY(val);
-      if (i === 0) ctx.moveTo(x, y);
-      else ctx.lineTo(x, y);
-    }
-    ctx.stroke();
-    ctx.setLineDash([]);
-
-    // End marker + drop line for non-current reigns
-    if (idx < liveReigns.length - 1) {
-      const endY = toY(curveValue(clampedElapsed(reign.end, reign.start), floorAmount, maxAmount, gameDuration, exponent));
-      ctx.beginPath();
-      ctx.arc(endX, endY, 4, 0, Math.PI * 2);
-      ctx.fillStyle = '#08050a';
-      ctx.fill();
-      ctx.lineWidth = 2;
-      ctx.strokeStyle = '#ff7b00';
-      ctx.stroke();
-
-      ctx.beginPath();
-      ctx.setLineDash([3, 3]);
-      ctx.moveTo(endX, endY);
-      ctx.lineTo(endX, floorY);
-      ctx.strokeStyle = 'rgba(255, 255, 255, 0.4)';
-      ctx.lineWidth = 1;
-      ctx.stroke();
-      ctx.setLineDash([]);
-    }
-  });
-
-  // Current king star
-  const lastReign = liveReigns[liveReigns.length - 1];
-  const now = ended ? deadline : Math.min(nowSeconds(), deadline);
-  const markerTs = Math.min(Math.max(now, lastReign.start), deadline);
-  const markerElapsed = clampedElapsed(markerTs, lastReign.start);
-  const markerVal = ended && paidAmount > 0
-    ? paidAmount
-    : curveValue(markerElapsed, floorAmount, maxAmount, gameDuration, exponent);
-  const markerX = toX(markerTs);
-  const markerY = toY(markerVal);
-
-  function drawStar(cx, cy, outer, inner, points) {
-    ctx.beginPath();
-    for (let i = 0; i < points * 2; i++) {
-      const r = i % 2 === 0 ? outer : inner;
-      const a = (Math.PI / points) * i - Math.PI / 2;
-      const px = cx + Math.cos(a) * r;
-      const py = cy + Math.sin(a) * r;
-      if (i === 0) ctx.moveTo(px, py);
-      else ctx.lineTo(px, py);
-    }
-    ctx.closePath();
-    ctx.fillStyle = '#fff';
-    ctx.fill();
-  }
-  drawStar(markerX, markerY, 10, 5, 5);
-
-  // Vertical guide line
-  ctx.beginPath();
-  ctx.setLineDash([5, 5]);
-  ctx.moveTo(markerX, markerY + 10);
-  ctx.lineTo(markerX, floorY);
-  ctx.strokeStyle = 'rgba(255, 123, 0, 0.4)';
-  ctx.lineWidth = 1;
-  ctx.stroke();
-  ctx.setLineDash([]);
-
-  // Original deadline marker + label (drawn on top)
-  if (originalX != null) {
-    ctx.beginPath();
-    ctx.setLineDash([3, 3]);
-    ctx.moveTo(originalX, pad.top);
-    ctx.lineTo(originalX, pad.top + plotH);
-    ctx.strokeStyle = 'rgba(255, 123, 0, 0.55)';
-    ctx.lineWidth = 1;
-    ctx.stroke();
-    ctx.setLineDash([]);
-
-    ctx.fillStyle = 'rgba(255, 123, 0, 0.65)';
-    ctx.font = 'bold 9px "JetBrains Mono", monospace';
-    ctx.textAlign = 'left';
-    ctx.textBaseline = 'bottom';
-    ctx.fillText('OVERTIME →', originalX + 4, pad.top + plotH - 4);
-  }
+  tbody.innerHTML = rows.join('');
+  empty.hidden = true;
+  wrap.hidden = false;
+  if (historyLink) historyLink.hidden = false;
 }
 
-// ── Data Fetching ─────────────────────────────────────────
-async function refresh() {
-  if (!contract) return;
+function classifyState(state) {
+  if (state.ended) return state.started ? (state.winner ? 'finalized' : 'finalized-empty') : 'cancelled';
+  if (!state.started) return state.funded ? 'ready' : 'unfunded';
+  const now = state.blockTimestamp;
+  if (now > state.deadline) return 'expired';
+  if (now > state.originalDeadline) return 'overtime';
+  return 'live';
+}
 
+function metricsFor(state, view) {
+  const token = (value) => formatToken(value, state.tokenDecimals, state.tokenSymbol);
+  if (view === 'cancelled') {
+    return [
+      { label: 'Clawed back', value: token(state.clawedBackAmount) },
+      { label: 'Prize pool', value: token(state.maxAmount) },
+      { label: 'Remaining funds', value: token(state.remainingAmount) },
+      { label: 'Total shots', value: String(state.shotSequence) },
+    ];
+  }
+  if (['finalized', 'finalized-empty'].includes(view)) {
+    const returned = state.clawedBackAmount > 0n;
+    return [
+      { label: view === 'finalized' ? 'Winner prize' : 'Prize paid', value: token(state.paidAmount) },
+      { label: 'Prize pool', value: token(state.maxAmount) },
+      { label: returned ? 'Clawed back' : 'Remaining funds', value: token(returned ? state.clawedBackAmount : state.remainingAmount) },
+      { label: 'Total shots', value: String(state.shotSequence) },
+    ];
+  }
+  if (view === 'expired') {
+    return [
+      { label: 'Last reign prize', value: state.king ? token(state.kingPrize) : '-' },
+      { label: 'Prize pool', value: token(state.maxAmount) },
+      { label: 'Remaining funds', value: token(state.remainingAmount) },
+      { label: 'Total shots', value: String(state.shotSequence) },
+    ];
+  }
+  if (view === 'ready' || view === 'unfunded') {
+    return [
+      { label: 'Contract funds', value: token(state.remainingAmount) },
+      { label: 'Prize pool', value: token(state.maxAmount) },
+      { label: 'Prize floor', value: token(state.floorAmount) },
+      { label: 'Max shots', value: String(state.maxShots) },
+    ];
+  }
+  return [
+    { label: 'Current reign prize', value: state.king ? token(state.kingPrize) : '-' },
+    { label: 'Prize pool', value: token(state.maxAmount) },
+    { label: 'Prize floor', value: token(state.floorAmount) },
+    { label: 'Max shots', value: String(state.maxShots) },
+  ];
+}
+
+function renderContractState(state, shots = cachedShots) {
+  viewState = state;
+  const view = classifyState(state);
+  document.body.dataset.view = view;
+  setContractLinks(true);
+  setMetrics(metricsFor(state, view));
+
+  const lastHolder = state.king ? shortHex(state.king) : 'No captures yet';
+  const token = (value) => formatToken(value, state.tokenDecimals, state.tokenSymbol);
+  const timeLeft = Math.max(0, state.deadline - chainNow());
+
+  if (view === 'unfunded') {
+    setHero({
+      kicker: 'AWAITING FUNDING', tone: 'warning', heading: 'The hill is not open.',
+      holder: shortHex(config.contractAddress), holderNeutral: false,
+      label: 'Game status', value: 'Unfunded',
+      copy: 'The creator must fund the contract before the game can start.',
+    });
+  } else if (view === 'ready') {
+    setHero({
+      kicker: 'FUNDED / NOT STARTED', tone: 'inactive', heading: 'The hill is ready.',
+      holder: shortHex(config.contractAddress), holderNeutral: false,
+      label: 'Game status', value: 'Waiting',
+      copy: 'The creator has funded the prize and must call start_game().',
+    });
+  } else if (view === 'live') {
+    const extended = state.deadline > state.originalDeadline;
+    setHero({
+      kicker: 'LIVE', tone: '', heading: state.king ? 'The hill is occupied.' : 'The hill is open.',
+      holder: lastHolder, holderNeutral: !state.king,
+      label: 'Live deadline', value: formatCountdown(timeLeft), valueTimer: true,
+      copy: extended
+        ? 'Extended by a late shot. Prize growth continues until the original deadline.'
+        : 'No extension. Prize growth continues until the original deadline.',
+    });
+  } else if (view === 'overtime') {
+    setHero({
+      kicker: 'LIVE / OVERTIME', tone: '', heading: state.king ? 'The hill is occupied.' : 'The hill is open.',
+      holder: lastHolder, holderNeutral: !state.king,
+      label: 'Live deadline', value: formatCountdown(timeLeft), valueTimer: true,
+      copy: 'Prize growth stopped at the original deadline. Shots remain open until the live deadline.',
+    });
+  } else if (view === 'expired') {
+    setHero({
+      kicker: 'EXPIRED / AWAITING FINALIZE()', tone: 'warning', heading: 'The hill is closed.',
+      holder: state.king ? `Last holder: ${shortHex(state.king)}` : 'No final holder', holderNeutral: !state.king,
+      label: 'Settlement', value: 'Finalize',
+      copy: 'Anyone may call finalize(). The contract alone selects and pays the winner.',
+    });
+    $('#contract-link').textContent = 'Open contract to finalize() ->';
+  } else if (view === 'finalized') {
+    setHero({
+      kicker: 'FINALIZED', tone: 'inactive', heading: 'Winner settled.',
+      holder: shortHex(state.winner), holderNeutral: false,
+      label: 'Winner prize', value: token(state.paidAmount),
+      copy: 'The contract transferred the prize during settlement.',
+    });
+  } else if (view === 'finalized-empty') {
+    setHero({
+      kicker: 'FINALIZED', tone: 'inactive', heading: 'No winning reign.',
+      holder: 'No prize was paid', holderNeutral: true,
+      label: 'Game status', value: 'Finalized',
+      copy: 'finalize() completed without a qualifying correct holder.',
+    });
+  } else {
+    setHero({
+      kicker: 'CANCELLED', tone: 'inactive', heading: 'The game was cancelled.',
+      holder: 'The hill never opened', holderNeutral: true,
+      label: 'Game status', value: 'Ended',
+      copy: 'The funded game ended before start_game() was called.',
+    });
+  }
+
+  renderTimeline(state, shots, view);
+  renderHistory(state, shots);
+  renderFooter(state, view);
+}
+
+function renderNoGame() {
+  viewState = null;
+  document.body.dataset.view = 'empty';
+  setContractLinks(false);
+  setMetrics(null);
+  setHero({
+    kicker: 'NO LIVE GAME', tone: 'inactive', heading: 'The hill is quiet.',
+    holder: 'No active contract', holderNeutral: false,
+    label: 'Game status', value: 'Waiting',
+    copy: 'Game details appear when the next contract goes live.',
+  });
+  setText('#timeline-note', 'Confirmed shoot() transactions appear here after a game starts.');
+  renderEmptyTimeline('No onchain activity to display');
+  renderHistory(null, []);
+  setText('#footer-state', `${networkName(config?.chainId || 8453)} / READ-ONLY PUBLIC VIEW / WAITING FOR GAME`);
+}
+
+function renderUnavailable(message) {
+  viewState = null;
+  document.body.dataset.view = 'unavailable';
+  setContractLinks(Boolean(config?.contractAddress));
+  setMetrics(null);
+  setHero({
+    kicker: 'DATA UNAVAILABLE', tone: 'warning', heading: 'The chain view is unavailable.',
+    holder: config?.contractAddress ? shortHex(config.contractAddress) : 'No contract connection', holderNeutral: true,
+    label: 'Connection', value: 'Retrying',
+    copy: message || 'Public contract reads could not be loaded.',
+  });
+  setText('#timeline-note', 'Capture activity will return when the public RPC connection recovers.');
+  renderEmptyTimeline('Unable to load onchain activity');
+  renderHistory(null, []);
+  setText('#footer-state', `${networkName(config?.chainId || 8453)} / READ-ONLY PUBLIC VIEW / DATA UNAVAILABLE`);
+}
+
+function renderFooter(state, view) {
+  const network = networkName(config.chainId);
+  const block = state.blockNumber ? `BLOCK ${state.blockNumber.toLocaleString()}` : 'LATEST BLOCK';
+  const labels = { 'finalized-empty': 'FINALIZED / NO WINNER' };
+  setText('#network', network);
+  setText('#footer-state', `${network} / READ-ONLY PUBLIC VIEW / ${block} / ${labels[view] || view.toUpperCase()}`);
+}
+
+async function loadConfigAndAbi() {
+  const [configResponse, abiResponse] = await Promise.all([fetch('/api/config'), fetch('/abi.json')]);
+  if (!configResponse.ok || !abiResponse.ok) throw new Error('Site configuration is unavailable.');
+  return { config: await configResponse.json(), abi: await abiResponse.json() };
+}
+
+async function loadShots(sequence) {
+  if (sequence === cachedShotSequence) return cachedShots;
+  if (sequence === 0) {
+    cachedShots = [];
+    cachedShotSequence = 0;
+    return cachedShots;
+  }
+  try {
+    const shots = await contract.queryFilter(contract.filters.Shot(), eventStartBlock, 'latest');
+    cachedShots = shots.sort((a, b) => Number(a.args.sequence) - Number(b.args.sequence));
+    cachedShotSequence = sequence;
+    if (cachedShots.length < sequence) {
+      console.warn(`Only ${cachedShots.length} of ${sequence} Shot events were found in the configured block lookback.`);
+    }
+  } catch (error) {
+    console.warn('Shot event query failed; retaining the last confirmed event set:', error.message);
+  }
+  return cachedShots;
+}
+
+async function readContractState() {
   const [
+    latestBlock,
     startTime,
     deadline,
+    originalDeadline,
+    maxDeadline,
     gameDuration,
     maxAmount,
     floorAmount,
-    remainingAmount,
-    originalDeadline,
-    maxDeadline,
-    curveExponent,
     maxShots,
+    curveExponent,
     king,
     kingSince,
     shotSequence,
     kingPrize,
-    paidAmount,
     funded,
     started,
     ended,
     winner,
-    tokenAddr,
+    paidAmount,
+    remainingAmount,
+    clawedBackAmount,
+    tokenAddress,
   ] = await Promise.all([
-    call(contract, 'start_time'),
-    call(contract, 'deadline'),
-    call(contract, 'game_duration'),
-    call(contract, 'max_amount'),
-    call(contract, 'floor_amount'),
-    call(contract, 'remaining_amount'),
-    call(contract, 'original_deadline'),
-    call(contract, 'max_deadline'),
-    call(contract, 'curve_exponent'),
-    call(contract, 'max_shots'),
-    call(contract, 'king'),
-    call(contract, 'king_since'),
-    call(contract, 'shot_sequence'),
-    call(contract, 'king_prize'),
-    call(contract, 'paid_amount'),
-    call(contract, 'funded'),
-    call(contract, 'started'),
-    call(contract, 'ended'),
-    call(contract, 'winner'),
-    call(contract, 'token'),
+    provider.getBlock('latest'),
+    contract.start_time(),
+    contract.deadline(),
+    contract.original_deadline(),
+    contract.max_deadline(),
+    contract.game_duration(),
+    contract.max_amount(),
+    contract.floor_amount(),
+    contract.max_shots(),
+    contract.curve_exponent(),
+    contract.king(),
+    contract.king_since(),
+    contract.shot_sequence(),
+    contract.king_prize(),
+    contract.funded(),
+    contract.started(),
+    contract.ended(),
+    contract.winner(),
+    contract.paid_amount(),
+    contract.remaining_amount(),
+    contract.clawed_back_amount(),
+    contract.token(),
   ]);
 
-  if (tokenAddr && tokenAddr !== EMPTY_ADDRESS && (!tokenContract || tokenContract.target !== tokenAddr)) {
-    tokenContract = new ethers.Contract(tokenAddr, ERC20_ABI, provider);
+  if (!tokenContract || tokenContract.target.toLowerCase() !== tokenAddress.toLowerCase()) {
+    tokenContract = new ethers.Contract(tokenAddress, ERC20_ABI, provider);
+    tokenMetadata = null;
   }
-  let decimals = 18;
-  let symbol = '';
-  if (tokenContract) {
-    try { decimals = Number(await tokenContract.decimals()); } catch {}
-    try { symbol = await tokenContract.symbol(); } catch {}
-  }
-
-  state.tokenDecimals = decimals;
-  state.tokenSymbol = symbol;
-
-  const prizePoolRaw = maxAmount || 0n;
-  const floorRaw = floorAmount || 0n;
-  const paidRaw = paidAmount || 0n;
-
-  state.prizePoolRaw = prizePoolRaw;
-  state.remainingAmountRaw = remainingAmount || 0n;
-  state.maxAmountRaw = prizePoolRaw;
-  state.floorRaw = floorRaw;
-  state.paidAmountRaw = paidRaw;
-  state.gameDuration = Number(gameDuration || 0) || (state.originalDeadline > state.startTime ? state.originalDeadline - state.startTime : 0);
-  state.curveExponent = Number(curveExponent || 1);
-  state.startTime = Number(startTime || 0);
-  state.deadline = Number(deadline || 0);
-  state.originalDeadline = Number(originalDeadline || 0);
-  state.maxDeadline = Number(maxDeadline || 0);
-  state.started = !!started;
-  state.funded = !!funded;
-  state.ended = !!ended;
-  state.currentHolder = king && king !== EMPTY_ADDRESS ? king.toLowerCase() : null;
-  state.kingSince = kingSince ? Number(kingSince) : 0;
-  state.winner = winner && winner !== EMPTY_ADDRESS ? winner.toLowerCase() : null;
-  state.kingPrizeRaw = kingPrize != null ? kingPrize : 0n;
-  state.shotSequence = shotSequence != null ? Number(shotSequence) : 0;
-
-  const now = nowSeconds();
-  const timeLeft = Math.max(0, state.deadline - now);
-  const prizePoolHuman = Number(prizePoolRaw) / Math.pow(10, decimals);
-  const maxAmountHuman = Number(state.maxAmountRaw) / Math.pow(10, decimals);
-  const floorHuman = Number(floorRaw) / Math.pow(10, decimals);
-  const paidHuman = Number(paidRaw) / Math.pow(10, decimals);
-
-  // Status
-  let statusText = '-';
-  if (state.ended) statusText = 'Ended';
-  else if (!state.funded) statusText = 'Not funded';
-  else if (!state.started) statusText = 'Funded · not started';
-  else if (timeLeft === 0) statusText = 'Expired · awaiting finalization';
-  else statusText = 'Live';
-
-  const statusEl = $('#status');
-  statusEl.textContent = statusText;
-  statusEl.classList.toggle('live', statusText === 'Live');
-
-  // Stats
-  $('#pool').textContent = state.prizePoolRaw != null ? formatToken(state.prizePoolRaw) : '-';
-  $('#floor').textContent = state.floorRaw != null ? formatToken(state.floorRaw) : '-';
-  $('#max-shots').textContent = maxShots != null ? Number(maxShots).toString() : '-';
-  $('#timer').textContent = state.ended ? 'Ended' : formatDuration(timeLeft);
-  if (state.ended) {
-    stopCountdown();
-  } else {
-    startCountdown();
-  }
-  $('#game-start').textContent = state.startTime ? fmtTime(state.startTime) : '-';
-
-  // Current / winner prize
-  let currentPrizeHuman = 0;
-  if (state.ended && state.paidAmountRaw && state.paidAmountRaw > 0n) {
-    currentPrizeHuman = paidHuman;
-  } else if (state.kingPrizeRaw != null && state.kingPrizeRaw > 0n) {
-    currentPrizeHuman = Number(state.kingPrizeRaw) / Math.pow(10, decimals);
-  } else if (state.currentHolder && state.kingSince && state.started && !state.ended) {
-    const effectiveUntil = Math.min(now, state.originalDeadline || state.deadline);
-    const elapsed = Math.max(0, effectiveUntil - state.kingSince);
-    currentPrizeHuman = curveValue(elapsed, floorHuman, maxAmountHuman, state.gameDuration, state.curveExponent);
-  }
-  const prizeText = currentPrizeHuman > 0
-    ? `${currentPrizeHuman.toLocaleString(undefined, { maximumFractionDigits: 4 })} ${symbol}`.trim()
-    : '-';
-  $('#prize').textContent = prizeText;
-  $('#prize-label').textContent = state.ended ? 'Winner Prize' : 'Current Reign Prize';
-
-  const winnerPrizeValue = $('#winner-prize-value');
-  if (winnerPrizeValue) {
-    winnerPrizeValue.textContent = state.ended && state.paidAmountRaw && state.paidAmountRaw > 0n ? prizeText : '-';
+  if (!tokenMetadata) {
+    const [decimals, symbol] = await Promise.all([
+      tokenContract.decimals().catch(() => 18),
+      tokenContract.symbol().catch(() => ''),
+    ]);
+    tokenMetadata = { decimals: Number(decimals), symbol: String(symbol) };
   }
 
-  // King / winner card
-  const displayHolder = state.ended && state.winner ? state.winner : state.currentHolder;
-  const heading = state.ended ? (state.winner ? 'Winner' : 'No Winner') : 'Current King';
-  $('#king-heading').textContent = heading;
-  $('#king').textContent = addrShort(displayHolder);
-  $('.king-section').classList.toggle('ended', state.ended);
-  $('#king-since-label').textContent = state.ended ? 'Won At' : 'Captured';
-  $('#king-since').textContent = state.kingSince ? fmtTime(state.kingSince) : '-';
-
-  let heldText = '-';
-  if (state.started) {
-    const heldStart = state.kingSince || state.startTime;
-    const heldEnd = state.ended ? state.deadline : now;
-    const heldSeconds = Math.max(0, heldEnd - heldStart);
-    if (heldSeconds > 0) heldText = formatDuration(heldSeconds);
+  const state = {
+    blockNumber: Number(latestBlock.number),
+    blockTimestamp: Number(latestBlock.timestamp),
+    observedAt: Date.now(),
+    startTime: Number(startTime),
+    deadline: Number(deadline),
+    originalDeadline: Number(originalDeadline),
+    maxDeadline: Number(maxDeadline),
+    gameDuration: Number(gameDuration),
+    maxAmount,
+    floorAmount,
+    maxShots: Number(maxShots),
+    curveExponent: Number(curveExponent),
+    king: isAddress(king) ? king : null,
+    kingSince: Number(kingSince),
+    shotSequence: Number(shotSequence),
+    kingPrize,
+    funded: Boolean(funded),
+    started: Boolean(started),
+    ended: Boolean(ended),
+    winner: isAddress(winner) ? winner : null,
+    paidAmount,
+    remainingAmount,
+    clawedBackAmount,
+    tokenAddress,
+    tokenDecimals: tokenMetadata.decimals,
+    tokenSymbol: tokenMetadata.symbol,
+  };
+  if (eventStartBlock === null) {
+    eventStartBlock = Math.max(0, state.blockNumber - EVENT_LOOKBACK_BLOCKS);
   }
-  $('#king-held-label').textContent = state.ended ? 'Held For' : 'Time Held';
-  $('#king-held').textContent = heldText;
-
-  // Build reigns from Shot events
-  if (startBlock == null) {
-    try {
-      const currentBlock = await provider.getBlockNumber();
-      startBlock = Math.max(0, currentBlock - 100000);
-    } catch {
-      startBlock = 0;
-    }
-  }
-  const shots = await call(contract, 'queryFilter', 'Shot', startBlock);
-  const reigns = [];
-  const reignEnd = state.ended ? state.deadline : Math.min(now, state.deadline);
-  if (shots && shots.length > 0) {
-    shots.sort((a, b) => Number(a.args.sequence) - Number(b.args.sequence));
-    let lastStart = state.startTime;
-    for (const shot of shots) {
-      const capturedAt = Number(shot.args.captured_at);
-      reigns.push({ start: lastStart, end: capturedAt, player: shot.args.player.toLowerCase() });
-      lastStart = capturedAt;
-    }
-    if (state.currentHolder) {
-      reigns.push({ start: lastStart, end: reignEnd, player: state.currentHolder });
-    }
-  } else if (state.currentHolder) {
-    reigns.push({ start: state.kingSince, end: reignEnd, player: state.currentHolder });
-  }
-
-  drawCurve(
-    state.startTime,
-    state.deadline,
-    state.originalDeadline,
-    floorHuman,
-    maxAmountHuman,
-    currentPrizeHuman,
-    state.curveExponent,
-    reigns,
-    paidHuman,
-    state.ended
-  );
-
-  renderHistory(shots);
-
-  const hadNewShot = lastShotSequence > 0 && state.shotSequence > lastShotSequence;
-  if (hadNewShot) {
-    triggerCrownAnimation();
-  }
-  lastShotSequence = state.shotSequence;
-  adjustRefreshInterval(hadNewShot);
+  const shots = await loadShots(state.shotSequence);
+  return { state, shots };
 }
 
-async function call(contractObj, fn, ...args) {
+function refreshDelay() {
+  if (!viewState) return IDLE_REFRESH_MS;
+  const view = classifyState(viewState);
+  if (['finalized', 'finalized-empty', 'cancelled'].includes(view)) {
+    return viewState.remainingAmount === 0n ? 0 : SETTLED_REFRESH_MS;
+  }
+  if (['ready', 'unfunded'].includes(view)) return IDLE_REFRESH_MS;
+  if (view === 'expired') return REFRESH_MS;
+  const remaining = Math.max(0, viewState.deadline - chainNow());
+  return remaining <= 60 ? URGENT_REFRESH_MS : REFRESH_MS;
+}
+
+function scheduleRefresh(delay = refreshDelay()) {
+  clearTimeout(refreshTimer);
+  if (!delay) return;
+  refreshTimer = setTimeout(refresh, delay);
+}
+
+async function refresh() {
+  if (refreshing || !contract) return;
+  refreshing = true;
   try {
-    return await contractObj[fn](...args);
-  } catch {
-    return null;
+    const { state, shots } = await readContractState();
+    renderContractState(state, shots);
+  } catch (error) {
+    console.warn('Contract refresh failed:', error.message);
+    if (!viewState) renderUnavailable('Public contract reads could not be loaded. The site will retry automatically.');
+  } finally {
+    refreshing = false;
+    scheduleRefresh();
   }
 }
 
-function prizeAtElapsed(elapsed) {
-  const floor = state.floorRaw || 0n;
-  const max = state.maxAmountRaw || 0n;
-  const duration = state.gameDuration || 0;
-  const exponent = state.curveExponent || 1;
-  if (!duration || elapsed <= 0) return floor;
-  const p = Math.min(elapsed / duration, 1);
-  let factor = p;
-  if (exponent === 2) factor = p * p;
-  else if (exponent === 3) factor = p * p * p;
-  const raw = Number(floor) + (Number(max) - Number(floor)) * factor;
-  return BigInt(Math.round(raw));
-}
-
-function renderHistory(shots) {
-  const tbody = $('#history-body');
-  if (!tbody) return;
-
-  const rows = [];
-
-  const capTs = state.originalDeadline > state.startTime ? state.originalDeadline : state.deadline;
-
-  const isOt = (ts) => state.originalDeadline > 0 && ts > state.originalDeadline;
-
-  // Completed reigns from Shot events
-  if (shots && shots.length > 0) {
-    const sorted = shots.slice().sort((a, b) => Number(a.args.sequence) - Number(b.args.sequence));
-    for (let i = sorted.length - 1; i >= Math.max(0, sorted.length - 10); i--) {
-      const s = sorted[i];
-      const capturedAt = Number(s.args.captured_at);
-      const reignStart = i === 0 ? state.startTime : Number(sorted[i - 1].args.captured_at);
-      const elapsed = Math.max(0, Math.min(capturedAt, capTs) - reignStart);
-      const prizeRaw = elapsed > 0 ? prizeAtElapsed(elapsed) : (state.floorRaw || 0n);
-      rows.push({ time: fmtTime(capturedAt), player: s.args.player.toLowerCase(), prizeRaw, ot: isOt(capturedAt) });
-    }
-  }
-
-  if (rows.length === 0) {
-    tbody.innerHTML = '<tr class="history-empty"><td colspan="3">No captures yet.</td></tr>';
+function updateClock() {
+  if (!viewState) return;
+  const before = document.body.dataset.view;
+  const after = classifyState(viewState);
+  if (before !== after) {
+    refresh();
     return;
   }
-
-  tbody.innerHTML = rows.slice(0, 10).map((r) => `
-    <tr>
-      <td>${r.time}${r.ot ? ' <span class="ot-badge">OT</span>' : ''}</td>
-      <td>${addrShort(r.player)}</td>
-      <td class="history-prize">${formatToken(r.prizeRaw)}</td>
-    </tr>
-  `).join('');
+  if (after === 'live' || after === 'overtime') {
+    setText('#status-value', formatCountdown(viewState.deadline - chainNow()));
+  }
 }
 
-// ── Idle Mode ────────────────────────────────────────────
-function showIdleState(reason = 'No active game is configured right now. Check back soon.') {
-  document.body.classList.add('idle');
-  const h2 = $('.hero-text h2');
-  const p = $('.hero-text p');
-  if (h2) h2.textContent = 'No Active Game';
-  if (p) p.textContent = reason;
-
-  const setText = (id, text) => {
-    const el = $(id);
-    if (el) el.textContent = text;
+function buildPreview(name) {
+  const now = Math.floor(Date.now() / 1_000);
+  const unit = 1_000_000n;
+  const base = {
+    blockNumber: 31_884_219,
+    blockTimestamp: now,
+    observedAt: Date.now(),
+    startTime: now - 3_600,
+    originalDeadline: now + 1_800,
+    deadline: now + 1_800,
+    maxDeadline: now + 2_100,
+    gameDuration: 5_400,
+    maxAmount: 500n * unit,
+    floorAmount: 1n * unit,
+    maxShots: 3,
+    curveExponent: 2,
+    king: '0x7A38db33b76379C9Cf7C54d273F477f4EabAC734',
+    kingSince: now - 720,
+    shotSequence: 5,
+    kingPrize: 9_860_000n,
+    funded: true,
+    started: true,
+    ended: false,
+    winner: null,
+    paidAmount: 0n,
+    remainingAmount: 500n * unit,
+    clawedBackAmount: 0n,
+    tokenDecimals: 6,
+    tokenSymbol: 'USDC',
   };
 
-  setText('#status', 'No active game');
-  setText('#pool', '-');
-  setText('#prize', '-');
-  setText('#floor', '-');
-  setText('#timer', '-');
-  setText('#max-shots', '-');
-  setText('#king', '-');
-  setText('#game-start', '-');
-  setText('#king-since', '-');
-  setText('#king-held', '-');
+  const addresses = [
+    '0x9b80d9E8122FCA5Ed409974812E07cBa0F7A1CdC',
+    '0x6034391c241e7756b0361C9f172aBE05CAfE602D',
+    '0x329958C18039e3CAeDd7d40B19e213B40C8f7971',
+    '0x1E0B0b73736f946bFc1A3541A1ac2fc4Fc5fDB5c',
+    base.king,
+  ];
+  const makeShots = (times) => times.map((timestamp, index) => ({
+    args: { player: addresses[index % addresses.length], sequence: BigInt(index + 1), captured_at: BigInt(timestamp) },
+    transactionHash: `0x${String(index + 1).padStart(64, '0')}`,
+  }));
 
-  const status = $('#status');
-  if (status) status.classList.remove('live');
-
-  const tbody = $('#history-body');
-  if (tbody) tbody.innerHTML = '<tr class="history-empty"><td colspan="3">No active game.</td></tr>';
-}
-
-// ── Mock Mode ─────────────────────────────────────────────
-function useMockData() {
-  useMock = true;
-
-  const now = nowSeconds();
-  state.tokenSymbol = 'ETH';
-  state.tokenDecimals = 18;
-  state.floorRaw = 5000000000000000000n;
-  state.maxAmountRaw = 25000000000000000000n;
-  state.prizePoolRaw = state.maxAmountRaw;
-  state.paidAmountRaw = 0n;
-  state.curveExponent = 2;
-  state.started = true;
-  state.funded = true;
-  state.ended = false;
-  state.winner = null;
-  state.shotSequence = 8;
-
-  const mockStart = now - 3600 * 6;
-  const mockDeadline = now + 3600 * 18;
-  state.startTime = mockStart;
-  state.deadline = mockDeadline;
-  state.gameDuration = mockDeadline - mockStart;
-  state.kingSince = mockStart + Math.floor(0.8 * state.gameDuration);
-  state.currentHolder = '0xAbCDEF1234567890abcdef1234567890ABCDEF12'.toLowerCase();
-
-  $('#status').textContent = 'Live';
-  $('#status').classList.add('live');
-  $('#pool').textContent = '25 ETH';
-  $('#floor').textContent = '5 ETH';
-  $('#max-shots').textContent = '5';
-  $('#timer').textContent = formatDuration(state.deadline - now);
-  $('#game-start').textContent = fmtTime(mockStart);
-  $('#prize-label').textContent = 'Current Reign Prize';
-  $('#prize').textContent = '12.45 ETH';
-  $('#king-heading').textContent = 'Current King';
-  $('#king').textContent = addrShort(state.currentHolder);
-  $('#king-since-label').textContent = 'Captured';
-  $('#king-since').textContent = fmtTime(state.kingSince);
-  $('#king-held-label').textContent = 'Time Held';
-  $('#king-held').textContent = formatDuration(now - state.kingSince);
-
-  const mockShots = [];
-  const mockReigns = [];
-  let lastStart = mockStart;
-  for (let i = 0; i < 8; i++) {
-    const capturedAt = mockStart + (i + 1) * 3600 * 0.7;
-    const addr = `0x${String(i + 1).repeat(40)}`;
-    mockShots.push({ args: { sequence: i + 1, player: addr, captured_at: capturedAt } });
-    mockReigns.push({ start: lastStart, end: capturedAt, player: addr });
-    lastStart = capturedAt;
+  if (name === 'unfunded') return { state: { ...base, startTime: 0, gameDuration: 0, funded: false, started: false, king: null, kingSince: 0, shotSequence: 0, kingPrize: 0n, remainingAmount: 0n }, shots: [] };
+  if (name === 'ready') return { state: { ...base, startTime: 0, gameDuration: 0, started: false, king: null, kingSince: 0, shotSequence: 0, kingPrize: 0n }, shots: [] };
+  if (name === 'cancelled') return { state: { ...base, startTime: 0, gameDuration: 0, started: false, ended: true, king: null, kingSince: 0, shotSequence: 0, kingPrize: 0n, remainingAmount: 0n, clawedBackAmount: 500n * unit }, shots: [] };
+  if (name === 'overtime') {
+    const state = { ...base, startTime: now - 4_200, originalDeadline: now - 300, deadline: now + 120, maxDeadline: now + 300, gameDuration: 3_900, kingSince: now - 40, kingPrize: 1n * unit, shotSequence: 7 };
+    return { state, shots: makeShots([now - 3_500, now - 2_500, now - 1_600, now - 800, now - 360, now - 180, now - 40]) };
   }
-  mockReigns.push({ start: lastStart, end: now, player: state.currentHolder });
-
-  drawCurve(mockStart, mockDeadline, mockDeadline, 5, 25, 12.45, 2, mockReigns, 0, false);
-
-  renderHistory(mockShots);
+  if (name === 'expired') {
+    const state = { ...base, startTime: now - 4_200, originalDeadline: now - 600, deadline: now - 60, maxDeadline: now - 300, gameDuration: 3_600, kingSince: now - 200, shotSequence: 6, kingPrize: 1n * unit };
+    return { state, shots: makeShots([now - 3_500, now - 2_500, now - 1_600, now - 800, now - 500, now - 200]) };
+  }
+  if (name === 'finalized' || name === 'finalized-empty') {
+    const winner = name === 'finalized' ? addresses[1] : null;
+    const paid = name === 'finalized' ? 84_200_000n : 0n;
+    const state = { ...base, startTime: now - 4_200, originalDeadline: now - 600, deadline: now - 300, maxDeadline: now - 300, gameDuration: 3_600, kingSince: now - 700, shotSequence: 6, kingPrize: 4_100_000n, ended: true, winner, paidAmount: paid, remainingAmount: 500n * unit - paid };
+    return { state, shots: makeShots([now - 3_500, now - 2_500, now - 1_600, now - 1_000, now - 800, now - 700]) };
+  }
+  return { state: base, shots: makeShots([now - 3_200, now - 2_500, now - 1_800, now - 1_100, now - 720]) };
 }
 
-function triggerCrownAnimation() {
-  const wrap = $('#crownWrap');
-  const activeCrown = $('#activeCrown');
-  const newCrown = $('#newCrown');
-  if (!wrap || !activeCrown || !newCrown || wrap.classList.contains('animating')) return;
-
-  newCrown.style.opacity = '0';
-  newCrown.style.transform = 'translateY(8px) scale(0.9)';
-  wrap.querySelectorAll('.fragment').forEach((f) => {
-    f.style.opacity = '0';
-    f.style.transform = 'translate(0,0) rotate(0deg) scale(1)';
-  });
-  activeCrown.style.opacity = '1';
-  activeCrown.style.transform = 'none';
-
-  wrap.classList.add('animating');
-  setTimeout(() => {
-    wrap.classList.remove('animating');
-    activeCrown.style.opacity = '1';
-    activeCrown.style.transform = 'none';
-    newCrown.style.opacity = '0';
-    newCrown.style.transform = 'translateY(8px) scale(0.9)';
-  }, 1200);
+function localPreviewName() {
+  const local = ['127.0.0.1', 'localhost'].includes(window.location.hostname);
+  return local ? new URLSearchParams(window.location.search).get('preview') : null;
 }
 
-// ── Init ──────────────────────────────────────────────────
 async function init() {
-  initBackground();
+  const preview = localPreviewName();
+  if (preview) {
+    config = { contractAddress: '0x1111111111111111111111111111111111111111', chainId: 8453 };
+    explorerBase = explorerForChain(config.chainId);
+    setText('#network', networkName(config.chainId));
+    if (preview === 'empty') renderNoGame();
+    else {
+      const fixture = buildPreview(preview);
+      renderContractState(fixture.state, fixture.shots);
+    }
+    clockTimer = setInterval(updateClock, 1_000);
+    return;
+  }
 
-  let config;
   try {
-    const { config: cfg, abi } = await loadConfig();
-    config = cfg;
-    const rpcUrl = new URL(config.rpcProxyUrl, window.location.href).toString();
-    provider = new ethers.JsonRpcProvider(rpcUrl, undefined, {
-      batchMaxCount: 50,
-      batchStallTime: 10,
-    });
-    contract = new ethers.Contract(config.contractAddress, abi, provider);
+    const loaded = await loadConfigAndAbi();
+    config = loaded.config;
+    explorerBase = explorerForChain(Number(config.chainId || 8453));
+    config.chainId = Number(config.chainId || 8453);
+    setText('#network', networkName(config.chainId));
 
-    // Verify connection
-    await contract.start_time();
-
-    // Set Basescan link
-    const link = $('#basescan-link');
-    if (link && config.contractAddress) {
-      const base = config.chainId === 84532 ? 'https://sepolia.basescan.org' : 'https://basescan.org';
-      link.href = `${base}/address/${config.contractAddress}`;
-    }
-  } catch (err) {
-    console.warn('Live contract unavailable:', err.message);
-    showIdleState();
-    return;
-  }
-
-  startRefresh();
-  document.addEventListener('visibilitychange', () => {
-    if (document.hidden) {
-      stopRefresh();
-    } else {
-      startRefresh();
-    }
-  });
-}
-
-function startRefresh() {
-  if (refreshTimer) return;
-  refresh();
-  refreshTimer = setInterval(refresh, currentInterval);
-}
-
-function stopRefresh() {
-  if (refreshTimer) {
-    clearInterval(refreshTimer);
-    refreshTimer = null;
-  }
-}
-
-function adjustRefreshInterval(hadNewShot = false) {
-  if (state.ended) {
-    stopRefresh();
-    stopCountdown();
-    return;
-  }
-  const now = nowSeconds();
-  const timeLeft = Math.max(0, state.deadline - now);
-  let nextInterval = BASE_INTERVAL;
-  if (timeLeft > 0 && timeLeft <= 60) {
-    nextInterval = ACTIVE_INTERVAL;
-  } else if (!state.started) {
-    nextInterval = IDLE_INTERVAL;
-  } else if (hadNewShot) {
-    nextInterval = ACTIVE_INTERVAL;
-  }
-  if (nextInterval !== currentInterval) {
-    currentInterval = nextInterval;
-    if (refreshTimer) {
-      clearInterval(refreshTimer);
-      refreshTimer = setInterval(refresh, currentInterval);
-    }
-  }
-}
-
-function startCountdown() {
-  stopCountdown();
-  countdownTimer = setInterval(() => {
-    if (state.ended || !state.deadline) {
-      stopCountdown();
+    if (!config.contractAddress || config.contractAddress.toLowerCase() === EMPTY_ADDRESS) {
+      renderNoGame();
       return;
     }
-    const left = Math.max(0, state.deadline - nowSeconds());
-    const timerEl = $('#timer');
-    if (timerEl) timerEl.textContent = formatDuration(left);
-    if (left === 0) stopCountdown();
-  }, 1000);
-}
+    if (!config.rpcProxyUrl) throw new Error('Public RPC proxy is not configured.');
 
-function stopCountdown() {
-  if (countdownTimer) {
-    clearInterval(countdownTimer);
-    countdownTimer = null;
+    const rpcUrl = new URL(config.rpcProxyUrl, window.location.href).toString();
+    provider = new ethers.JsonRpcProvider(rpcUrl, config.chainId, { batchMaxCount: 50, batchStallTime: 10 });
+    contract = new ethers.Contract(config.contractAddress, loaded.abi, provider);
+    setContractLinks(true);
+    await refresh();
+    clockTimer = setInterval(updateClock, 1_000);
+  } catch (error) {
+    console.warn('Site initialization failed:', error.message);
+    if (config?.contractAddress && config.contractAddress.toLowerCase() !== EMPTY_ADDRESS) renderUnavailable(error.message);
+    else renderNoGame();
   }
 }
+
+document.addEventListener('visibilitychange', () => {
+  if (document.hidden) {
+    clearTimeout(refreshTimer);
+    clearInterval(clockTimer);
+    refreshTimer = null;
+    clockTimer = null;
+  } else {
+    if (contract) refresh();
+    if (!clockTimer) clockTimer = setInterval(updateClock, 1_000);
+  }
+});
 
 document.addEventListener('DOMContentLoaded', init);
