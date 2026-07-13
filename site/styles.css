@@ -401,6 +401,7 @@ footer { padding: 24px 0 36px; color: var(--faint); font-size: 13px; }
   .guide-step, .guide-step + .guide-step { padding: 18px 0; border-right: 0; border-top: 1px solid var(--line); }
   .guide-step:first-child { border-top: 0; }
   .guide-actions { align-items: flex-start; flex-direction: column; gap: 12px; }
+  .chain-link { max-width: 100%; text-align: center; white-space: normal; }
   .timeline-key { flex-wrap: wrap; gap: 10px 18px; }
   .timeline-end { display: none; }
   .ledger th:nth-child(3), .ledger td:nth-child(3) { display: none; }

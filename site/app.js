@@ -158,7 +158,7 @@ function setContractLinks(enabled) {
   actionLink.href = url;
   actionLink.classList.toggle('disabled', !enabled);
   actionLink.setAttribute('aria-disabled', enabled ? 'false' : 'true');
-  actionLink.textContent = enabled ? 'Open verified contract ->' : 'Contract link appears when live';
+  actionLink.textContent = enabled ? 'Open verified contract ->' : 'Available when a game is configured';
 }
 
 function setKicker(text, tone = 'inactive') {
@@ -315,7 +315,7 @@ function classifyState(state) {
   const now = state.blockTimestamp;
   if (now > state.deadline) return 'expired';
   if (now > state.originalDeadline) return 'overtime';
-  return 'live';
+  return state.shotSequence > 0 ? 'live-active' : 'live-open';
 }
 
 function metricsFor(state, view) {
@@ -374,24 +374,31 @@ function renderContractState(state, shots = cachedShots) {
 
   if (view === 'unfunded') {
     setHero({
-      kicker: 'AWAITING FUNDING', tone: 'warning', heading: 'The hill is not open.',
+      kicker: 'CONTRACT ATTACHED / UNFUNDED', tone: 'warning', heading: 'A game contract is attached.',
       holder: shortHex(config.contractAddress), holderNeutral: false,
-      label: 'Game status', value: 'Unfunded',
-      copy: 'The creator must fund the contract before the game can start.',
+      label: 'Funding status', value: 'Not funded',
+      copy: 'The contract exists, but the prize has not been funded and the game cannot start.',
     });
   } else if (view === 'ready') {
     setHero({
       kicker: 'FUNDED / NOT STARTED', tone: 'inactive', heading: 'The hill is ready.',
       holder: shortHex(config.contractAddress), holderNeutral: false,
-      label: 'Game status', value: 'Waiting',
-      copy: 'The creator has funded the prize and must call start_game().',
+      label: 'Game status', value: 'Ready',
+      copy: 'The prize is funded. Play begins only after the creator calls start_game().',
     });
-  } else if (view === 'live') {
+  } else if (view === 'live-open') {
+    setHero({
+      kicker: 'LIVE / NO SHOTS', tone: '', heading: 'The hill is open.',
+      holder: 'No current holder', holderNeutral: true,
+      label: 'Time remaining', value: formatCountdown(timeLeft), valueTimer: true,
+      copy: 'No shot has been confirmed. The first shoot(answer) transaction will take the hill.',
+    });
+  } else if (view === 'live-active') {
     const extended = state.deadline > state.originalDeadline;
     setHero({
-      kicker: 'LIVE', tone: '', heading: state.king ? 'The hill is occupied.' : 'The hill is open.',
-      holder: lastHolder, holderNeutral: !state.king,
-      label: 'Live deadline', value: formatCountdown(timeLeft), valueTimer: true,
+      kicker: 'LIVE / SHOTS CONFIRMED', tone: '', heading: 'The hill is occupied.',
+      holder: lastHolder, holderNeutral: false,
+      label: 'Time remaining', value: formatCountdown(timeLeft), valueTimer: true,
       copy: extended
         ? 'Extended by a late shot. Prize growth continues until the original deadline.'
         : 'No extension. Prize growth continues until the original deadline.',
@@ -405,7 +412,7 @@ function renderContractState(state, shots = cachedShots) {
     });
   } else if (view === 'expired') {
     setHero({
-      kicker: 'EXPIRED / AWAITING FINALIZE()', tone: 'warning', heading: 'The hill is closed.',
+      kicker: 'GAME ENDED / AWAITING FINALIZE()', tone: 'warning', heading: 'The hill is closed.',
       holder: state.king ? `Last holder: ${shortHex(state.king)}` : 'No final holder', holderNeutral: !state.king,
       label: 'Settlement', value: 'Finalize',
       copy: 'Anyone may call finalize(). The contract alone selects and pays the winner.',
@@ -413,14 +420,14 @@ function renderContractState(state, shots = cachedShots) {
     $('#contract-link').textContent = 'Open contract to finalize() ->';
   } else if (view === 'finalized') {
     setHero({
-      kicker: 'FINALIZED', tone: 'inactive', heading: 'Winner settled.',
+      kicker: 'FINALIZE() CALLED / PRIZE PAID', tone: 'inactive', heading: 'Winner settled.',
       holder: shortHex(state.winner), holderNeutral: false,
       label: 'Winner prize', value: token(state.paidAmount),
       copy: 'The contract transferred the prize during settlement.',
     });
   } else if (view === 'finalized-empty') {
     setHero({
-      kicker: 'FINALIZED', tone: 'inactive', heading: 'No winning reign.',
+      kicker: 'FINALIZE() CALLED / NO WINNER', tone: 'inactive', heading: 'No winning reign.',
       holder: 'No prize was paid', holderNeutral: true,
       label: 'Game status', value: 'Finalized',
       copy: 'finalize() completed without a qualifying correct holder.',
@@ -446,14 +453,14 @@ function renderNoGame() {
   setMetrics(null);
   setHero({
     kicker: 'NO LIVE GAME', tone: 'inactive', heading: 'The hill is quiet.',
-    holder: 'No active contract', holderNeutral: false,
-    label: 'Game status', value: 'Waiting',
-    copy: 'Game details appear when the next contract goes live.',
+    holder: 'No game contract configured', holderNeutral: false,
+    label: 'Game status', value: 'None',
+    copy: 'There is no active game attached to this viewer.',
   });
   setText('#timeline-note', 'Confirmed shoot() transactions appear here after a game starts.');
   renderEmptyTimeline('No onchain activity to display');
   renderHistory(null, []);
-  setText('#footer-state', `${networkName(config?.chainId || 8453)} / READ-ONLY PUBLIC VIEW / WAITING FOR GAME`);
+  setText('#footer-state', `${networkName(config?.chainId || 8453)} / READ-ONLY PUBLIC VIEW / NO LIVE GAME`);
 }
 
 function renderUnavailable(message) {
@@ -476,7 +483,13 @@ function renderUnavailable(message) {
 function renderFooter(state, view) {
   const network = networkName(config.chainId);
   const block = state.blockNumber ? `BLOCK ${state.blockNumber.toLocaleString()}` : 'LATEST BLOCK';
-  const labels = { 'finalized-empty': 'FINALIZED / NO WINNER' };
+  const labels = {
+    'live-open': 'LIVE / NO SHOTS',
+    'live-active': 'LIVE / SHOTS CONFIRMED',
+    expired: 'GAME ENDED / AWAITING FINALIZE()',
+    finalized: 'FINALIZE() CALLED / WINNER PAID',
+    'finalized-empty': 'FINALIZE() CALLED / NO WINNER',
+  };
   setText('#network', network);
   setText('#footer-state', `${network} / READ-ONLY PUBLIC VIEW / ${block} / ${labels[view] || view.toUpperCase()}`);
 }
@@ -644,7 +657,7 @@ function updateClock() {
     refresh();
     return;
   }
-  if (after === 'live' || after === 'overtime') {
+  if (after === 'live-open' || after === 'live-active' || after === 'overtime') {
     setText('#status-value', formatCountdown(viewState.deadline - chainNow()));
   }
 }
@@ -694,6 +707,7 @@ function buildPreview(name) {
 
   if (name === 'unfunded') return { state: { ...base, startTime: 0, gameDuration: 0, funded: false, started: false, king: null, kingSince: 0, shotSequence: 0, kingPrize: 0n, remainingAmount: 0n }, shots: [] };
   if (name === 'ready') return { state: { ...base, startTime: 0, gameDuration: 0, started: false, king: null, kingSince: 0, shotSequence: 0, kingPrize: 0n }, shots: [] };
+  if (name === 'live-open') return { state: { ...base, king: null, kingSince: 0, shotSequence: 0, kingPrize: 0n }, shots: [] };
   if (name === 'cancelled') return { state: { ...base, startTime: 0, gameDuration: 0, started: false, ended: true, king: null, kingSince: 0, shotSequence: 0, kingPrize: 0n, remainingAmount: 0n, clawedBackAmount: 500n * unit }, shots: [] };
   if (name === 'overtime') {
     const state = { ...base, startTime: now - 4_200, originalDeadline: now - 300, deadline: now + 120, maxDeadline: now + 300, gameDuration: 3_900, kingSince: now - 40, kingPrize: 1n * unit, shotSequence: 7 };

@@ -9,10 +9,10 @@
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&family=Newsreader:opsz,wght@6..72,500;6..72,650&display=swap" rel="stylesheet">
   <link rel="icon" type="image/svg+xml" href="favicon.svg">
-  <link rel="stylesheet" href="styles.css?v=19">
+  <link rel="stylesheet" href="styles.css?v=21">
   <script src="assets/ethers.umd.min.js"></script>
 </head>
-<body data-view="loading">
+<body data-view="empty">
   <header>
     <div class="shell nav">
       <a class="brand" href="#top"><strong>King of the Hill</strong><span class="version">v5.2</span></a>
@@ -27,14 +27,14 @@
   <main class="shell" id="top">
     <section class="live-heading" aria-labelledby="state-heading">
       <div>
-        <div class="eyebrow inactive" id="state-kicker"><span class="pulse"></span><span id="state-kicker-text">LOADING</span></div>
-        <h1 id="state-heading">Reading the chain.</h1>
-        <p class="holder" id="holder">Connecting to public contract state</p>
+        <div class="eyebrow inactive" id="state-kicker"><span class="pulse"></span><span id="state-kicker-text">NO LIVE GAME</span></div>
+        <h1 id="state-heading">The hill is quiet.</h1>
+        <p class="holder" id="holder">No game contract configured</p>
       </div>
       <div class="status-block">
         <div class="label" id="status-label">Game status</div>
-        <div class="status-value" id="status-value">Loading</div>
-        <p class="status-copy" id="status-copy">Waiting for the latest block.</p>
+        <div class="status-value" id="status-value">None</div>
+        <p class="status-copy" id="status-copy">There is no active game attached to this viewer.</p>
       </div>
     </section>
 
@@ -72,7 +72,7 @@
         <article class="guide-step"><b>04</b><h3>Settle the game</h3><p>After the live deadline, anyone may call <code>finalize()</code>. The contract pays the best banked result.</p></article>
       </div>
       <div class="guide-actions">
-        <a class="chain-link disabled" id="contract-link" href="https://basescan.org" target="_blank" rel="noopener" aria-disabled="true">Contract link appears when live</a>
+        <a class="chain-link disabled" id="contract-link" href="https://basescan.org" target="_blank" rel="noopener" aria-disabled="true">Available when a game is configured</a>
         <p>Late shots can extend play. Prize growth still stops at the original deadline.</p>
       </div>
     </section>
@@ -101,8 +101,8 @@
     <p class="disclosure">During a live game, this page displays public contract state and transaction events while intentionally omitting shot answer calldata. Verify every displayed value and inspect transaction inputs on Basescan.</p>
   </main>
 
-  <footer><div class="shell" id="footer-state">READ-ONLY PUBLIC VIEW / BASE / WAITING FOR GAME</div></footer>
+  <footer><div class="shell" id="footer-state">BASE MAINNET / READ-ONLY PUBLIC VIEW / NO LIVE GAME</div></footer>
 
-  <script type="module" src="app.js?v=19"></script>
+  <script type="module" src="app.js?v=21"></script>
 </body>
 </html>
