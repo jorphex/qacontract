@@ -164,11 +164,12 @@ h3 { margin: 0; font-size: 21px; }
 
 .scoreline {
   display: grid;
-  grid-template-columns: 1.1fr repeat(3, 0.7fr);
+  grid-template-columns: minmax(0, 0.95fr) repeat(3, minmax(0, 0.75fr));
   border-bottom: 1px solid var(--line);
   background: var(--state-panel);
 }
 .score {
+  container-type: inline-size;
   min-width: 0;
   padding: 24px 20px 24px 0;
   border-right: 1px solid var(--line);
@@ -178,7 +179,7 @@ h3 { margin: 0; font-size: 21px; }
 .score strong {
   display: block;
   margin-top: 8px;
-  font-size: 29px;
+  font-size: clamp(21px, 11cqi, 29px);
   font-weight: 500;
   font-variant-numeric: tabular-nums;
   white-space: nowrap;
@@ -467,6 +468,13 @@ body[data-view="unfunded"] .status-value {
 .disclosure { margin: 0; padding: 27px 0 0; border-top: 1px solid var(--line); color: var(--muted); font-size: 15px; }
 footer { padding: 24px 0 36px; color: var(--faint); font-size: 13px; }
 
+@media (max-width: 1024px) {
+  .scoreline { grid-template-columns: 1fr 1fr; }
+  .score:nth-child(2) { border-right: 0; }
+  .score:nth-child(n+3) { border-top: 1px solid var(--line); }
+  .score:nth-child(3) { padding-left: 0; }
+}
+
 @media (max-width: 900px) {
   h1 { font-size: 64px; }
   body[data-view="empty"] h1,
@@ -489,10 +497,6 @@ footer { padding: 24px 0 36px; color: var(--faint); font-size: 13px; }
   main { padding-top: 34px; }
   .live-heading { grid-template-columns: 1fr; gap: 30px; }
   .status-block { border-left: 0; border-top: 1px solid var(--line); padding: 22px 0 0; }
-  .scoreline { grid-template-columns: 1fr 1fr; }
-  .score:nth-child(2) { border-right: 0; }
-  .score:nth-child(n+3) { border-top: 1px solid var(--line); }
-  .score:nth-child(3) { padding-left: 0; }
   .section-top, .guide-heading { align-items: flex-start; flex-direction: column; }
   .section-note { justify-content: flex-start; text-align: left; }
   .section-note span { white-space: normal; }
@@ -524,7 +528,7 @@ footer { padding: 24px 0 36px; color: var(--faint); font-size: 13px; }
   .holder { font-size: 18px; }
   .status-value { font-size: 44px; }
   .status-value.timer { font-size: 44px; }
-  .score strong { font-size: 18px; }
+  .score strong { font-size: 18px; white-space: normal; overflow-wrap: anywhere; }
   .timeline-section { padding: 32px 0 36px; }
   .timeline.empty { height: 104px; }
   .play-guide { padding: 36px 0 38px; }
