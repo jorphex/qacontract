@@ -7,10 +7,13 @@ const ERC20_ABI = [
 
 const EMPTY_ADDRESS = `0x${'0'.repeat(40)}`;
 const EVENT_LOOKBACK_BLOCKS = 200_000;
-const REFRESH_MS = 3_000;
-const URGENT_REFRESH_MS = 1_000;
-const IDLE_REFRESH_MS = 10_000;
-const SETTLED_REFRESH_MS = 30_000;
+const LIVE_REFRESH_MS = 5_000;
+const URGENT_REFRESH_MS = 3_000;
+const URGENT_WINDOW_SECONDS = 5 * 60;
+const EXPIRED_REFRESH_MS = 10_000;
+const IDLE_REFRESH_MS = 30_000;
+const RETRY_REFRESH_MS = 10_000;
+const SETTLED_REFRESH_MS = 60_000;
 const TIMELINE_SWEEP_MS = 650;
 const TIMELINE_SWEEP_EASING = 'cubic-bezier(0.42, 0, 0.85, 0.45)';
 
@@ -760,15 +763,16 @@ async function readContractState() {
 }
 
 function refreshDelay() {
-  if (!viewState) return IDLE_REFRESH_MS;
+  if (!viewState) return RETRY_REFRESH_MS;
   const view = classifyState(viewState);
   if (['finalized', 'finalized-empty', 'cancelled'].includes(view)) {
     return viewState.remainingAmount === 0n ? 0 : SETTLED_REFRESH_MS;
   }
   if (['ready', 'unfunded', 'missed-start'].includes(view)) return IDLE_REFRESH_MS;
-  if (view === 'expired') return REFRESH_MS;
+  if (view === 'expired') return EXPIRED_REFRESH_MS;
+  if (view === 'overtime') return URGENT_REFRESH_MS;
   const remaining = Math.max(0, viewState.deadline - chainNow());
-  return remaining <= 60 ? URGENT_REFRESH_MS : REFRESH_MS;
+  return remaining <= URGENT_WINDOW_SECONDS ? URGENT_REFRESH_MS : LIVE_REFRESH_MS;
 }
 
 function scheduleRefresh(delay = refreshDelay()) {
@@ -781,15 +785,17 @@ function scheduleRefresh(delay = refreshDelay()) {
 async function refresh() {
   if (refreshing || !contract) return;
   refreshing = true;
+  let nextDelay;
   try {
     const { state, shots } = await readContractState();
     renderContractState(state, shots);
   } catch (error) {
     console.warn('Contract refresh failed:', error.message);
     if (!viewState) renderUnavailable('Public contract reads could not be loaded. The site will retry automatically.');
+    nextDelay = RETRY_REFRESH_MS;
   } finally {
     refreshing = false;
-    scheduleRefresh();
+    scheduleRefresh(nextDelay);
   }
 }
 
@@ -944,7 +950,7 @@ async function init() {
     console.warn('Site initialization failed:', error.message);
     if (!config || (config.contractAddress && config.contractAddress.toLowerCase() !== EMPTY_ADDRESS)) {
       renderUnavailable(error.message);
-      if (!document.hidden) refreshTimer = setTimeout(init, IDLE_REFRESH_MS);
+      if (!document.hidden) refreshTimer = setTimeout(init, RETRY_REFRESH_MS);
     } else {
       renderNoGame();
     }

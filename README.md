@@ -313,6 +313,12 @@ The site reuses the existing `KINGOFTHEHILL_ADDRESS` as the contract address.
 When it is unset or the zero address, the site shows its empty state and does not
 poll the RPC proxy.
 
+Polling follows the game lifecycle: every 5 seconds during normal live play,
+every 3 seconds during the final five minutes and overtime, every 10 seconds
+while awaiting settlement, every 30 seconds before start, and every 60 seconds
+after settlement while recoverable funds remain. Hidden tabs do not poll, and
+settled games stop polling after the contract balance reaches zero.
+
 Serve it:
 
 ```sh
