@@ -103,6 +103,16 @@ function formatTimelineTime(timestamp) {
   });
 }
 
+function formatCompactDateTime(timestamp) {
+  if (!timestamp) return '-';
+  return new Date(timestamp * 1_000).toLocaleString(undefined, {
+    month: 'short',
+    day: 'numeric',
+    hour: 'numeric',
+    minute: '2-digit',
+  });
+}
+
 function chainNow() {
   if (!viewState?.blockTimestamp) return Math.floor(Date.now() / 1_000);
   const elapsed = Math.max(0, Math.floor((Date.now() - viewState.observedAt) / 1_000));
@@ -203,6 +213,16 @@ function renderEmptyTimeline(message) {
   $('#timeline-key').hidden = true;
 }
 
+function setTimelineNote(parts) {
+  const note = $('#timeline-note');
+  if (!note) return;
+  note.replaceChildren(...parts.map((part) => {
+    const item = document.createElement('span');
+    item.textContent = part;
+    return item;
+  }));
+}
+
 function timelinePosition(timestamp, start, end) {
   if (end <= start) return 0;
   return Math.max(0, Math.min(100, ((timestamp - start) / (end - start)) * 100));
@@ -210,7 +230,7 @@ function timelinePosition(timestamp, start, end) {
 
 function renderTimeline(state, shots, view) {
   if (!state.started || !state.startTime) {
-    setText('#timeline-note', 'Confirmed shoot() transactions appear here after a game starts.');
+    setTimelineNote(['Confirmed shoot() transactions appear here after a game starts.']);
     renderEmptyTimeline(view === 'cancelled' ? 'Game ended before it started' : 'No onchain activity to display');
     return;
   }
@@ -260,13 +280,20 @@ function renderTimeline(state, shots, view) {
   $('#current-end-key').hidden = !hasOvertime;
   $('#overtime-key').hidden = !hasOvertime;
 
-  const extensionCopy = hasOvertime
-    ? `Prize growth stopped at ${formatDateTime(state.originalDeadline)}. Play currently ends at ${formatDateTime(state.deadline)} and cannot extend past ${formatDateTime(state.maxDeadline)}.`
-    : `Prize growth stops and play currently ends at ${formatDateTime(state.originalDeadline)}. Overtime cannot extend past ${formatDateTime(state.maxDeadline)}.`;
   const shotCopy = shots.length === state.shotSequence
-    ? `${shots.length} confirmed shot${shots.length === 1 ? '' : 's'}.`
-    : `Showing ${shots.length} of ${state.shotSequence} confirmed shots.`;
-  setText('#timeline-note', `${shotCopy} ${extensionCopy}`);
+    ? `${shots.length} confirmed shot${shots.length === 1 ? '' : 's'}`
+    : `${shots.length} of ${state.shotSequence} shots shown`;
+  const timingParts = hasOvertime
+    ? [
+      `Prize cutoff ${formatCompactDateTime(state.originalDeadline)}`,
+      `Current end ${formatCompactDateTime(state.deadline)}`,
+      `Overtime cap ${formatCompactDateTime(state.maxDeadline)}`,
+    ]
+    : [
+      `Cutoff / current end ${formatCompactDateTime(state.originalDeadline)}`,
+      `Overtime cap ${formatCompactDateTime(state.maxDeadline)}`,
+    ];
+  setTimelineNote([shotCopy, ...timingParts]);
 }
 
 function renderHistory(state, shots) {

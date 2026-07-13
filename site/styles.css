@@ -210,7 +210,18 @@ body[data-view="unfunded"] .status-value {
   gap: 24px;
   margin-bottom: 28px;
 }
-.section-note { max-width: 540px; margin: 0; color: var(--muted); font-size: 15px; text-align: right; }
+.section-note {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 4px 16px;
+  max-width: 620px;
+  margin: 0;
+  color: var(--muted);
+  font-size: 15px;
+  text-align: right;
+}
+.section-note span { white-space: nowrap; }
 .timeline {
   position: relative;
   height: 178px;
@@ -472,7 +483,8 @@ footer { padding: 24px 0 36px; color: var(--faint); font-size: 13px; }
   .score:nth-child(n+3) { border-top: 1px solid var(--line); }
   .score:nth-child(3) { padding-left: 0; }
   .section-top, .guide-heading { align-items: flex-start; flex-direction: column; }
-  .section-note, .guide-heading p { text-align: left; }
+  .section-note { justify-content: flex-start; text-align: left; }
+  .guide-heading p { text-align: left; }
   .timeline { height: 154px; }
   .timeline-rail { top: 79px; }
   .timeline-progress { top: 78px; }
