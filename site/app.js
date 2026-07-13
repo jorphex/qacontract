@@ -155,6 +155,7 @@ function setContractLinks(enabled) {
   if (navLink) navLink.href = url;
   if (!actionLink) return;
 
+  actionLink.hidden = !enabled;
   actionLink.href = url;
   actionLink.classList.toggle('disabled', !enabled);
   actionLink.setAttribute('aria-disabled', enabled ? 'false' : 'true');
@@ -296,10 +297,10 @@ function renderHistory(state, shots) {
     const hash = shot.transactionHash || shot.log?.transactionHash || '';
     return `
       <tr>
-        <td title="${escapeHtml(formatDateTime(capturedAt))}">${escapeHtml(formatTimelineTime(capturedAt))}${overtime ? ' <span class="ot">OT</span>' : ''}</td>
-        <td><a href="${addressUrl(player)}" target="_blank" rel="noopener">${escapeHtml(shortHex(player))}</a></td>
-        <td>${hash ? `<a href="${txUrl(hash)}" target="_blank" rel="noopener">${escapeHtml(shortHex(hash))}</a>` : '-'}</td>
-        <td>${escapeHtml(visiblePrize)}</td>
+        <td data-label="Time" title="${escapeHtml(formatDateTime(capturedAt))}">${escapeHtml(formatTimelineTime(capturedAt))}${overtime ? ' <span class="ot">OT</span>' : ''}</td>
+        <td data-label="Player"><a href="${addressUrl(player)}" target="_blank" rel="noopener">${escapeHtml(shortHex(player))}</a></td>
+        <td data-label="Transaction">${hash ? `<a href="${txUrl(hash)}" target="_blank" rel="noopener">${escapeHtml(shortHex(hash))}</a>` : '-'}</td>
+        <td data-label="Previous reign prize">${escapeHtml(visiblePrize)}</td>
       </tr>`;
   });
 
@@ -354,7 +355,7 @@ function metricsFor(state, view) {
     ];
   }
   return [
-    { label: 'Current reign prize', value: state.king ? token(state.kingPrize) : '-' },
+    { label: 'Visible reign prize', value: state.king ? token(state.kingPrize) : '-' },
     { label: 'Prize pool', value: token(state.maxAmount) },
     { label: 'Prize floor', value: token(state.floorAmount) },
     { label: 'Max shots', value: String(state.maxShots) },
@@ -368,7 +369,7 @@ function renderContractState(state, shots = cachedShots) {
   setContractLinks(true);
   setMetrics(metricsFor(state, view));
 
-  const lastHolder = state.king ? shortHex(state.king) : 'No captures yet';
+  const lastHolder = state.king ? `Current holder: ${shortHex(state.king)}` : 'No captures yet';
   const token = (value) => formatToken(value, state.tokenDecimals, state.tokenSymbol);
   const timeLeft = Math.max(0, state.deadline - chainNow());
 

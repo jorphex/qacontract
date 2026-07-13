@@ -7,9 +7,9 @@
   <title>King of the Hill v5.2</title>
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-  <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&family=Newsreader:opsz,wght@6..72,500;6..72,650&display=swap" rel="stylesheet">
+  <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&family=IBM+Plex+Sans:wght@400;500;600&family=Newsreader:opsz,wght@6..72,500;6..72,650&display=swap" rel="stylesheet">
   <link rel="icon" type="image/svg+xml" href="favicon.svg">
-  <link rel="stylesheet" href="styles.css?v=21">
+  <link rel="stylesheet" href="styles.css?v=22">
   <script src="assets/ethers.umd.min.js"></script>
 </head>
 <body data-view="empty">
@@ -39,7 +39,7 @@
     </section>
 
     <section class="scoreline" id="scoreline" aria-label="Public game state" hidden>
-      <div class="score primary"><span class="label" id="metric-primary-label">Current reign prize</span><strong id="metric-primary">-</strong></div>
+      <div class="score primary"><span class="label" id="metric-primary-label">Visible reign prize</span><strong id="metric-primary">-</strong></div>
       <div class="score"><span class="label" id="metric-two-label">Prize pool</span><strong id="metric-two">-</strong></div>
       <div class="score"><span class="label" id="metric-three-label">Prize floor</span><strong id="metric-three">-</strong></div>
       <div class="score"><span class="label" id="metric-four-label">Max shots</span><strong id="metric-four">-</strong></div>
@@ -67,12 +67,12 @@
       </div>
       <div class="guide-grid">
         <article class="guide-step"><b>01</b><h3>Find the question</h3><p>Open <strong>Read Contract</strong> on Basescan and query <code>prompt()</code>.</p></article>
-        <article class="guide-step"><b>02</b><h3>Take a shot</h3><p>Open <strong>Write Contract</strong>, connect your wallet, then call <code>shoot(answer)</code>.</p></article>
-        <article class="guide-step"><b>03</b><h3>Use ammo wisely</h3><p>You get a limited number of shots. Every shot takes the hill, but only correct hold time is banked.</p></article>
+        <article class="guide-step"><b>02</b><h3>Take a shot</h3><p>Open <strong>Write Contract</strong>, connect your wallet, then call <code>shoot(answer)</code>. The answer must match exactly, including capitalization.</p></article>
+        <article class="guide-step"><b>03</b><h3>Use ammo wisely</h3><p>You get limited shots. The visible holder is not necessarily winning; only correct hold time is banked, and banked results stay hidden.</p></article>
         <article class="guide-step"><b>04</b><h3>Settle the game</h3><p>After the live deadline, anyone may call <code>finalize()</code>. The contract pays the best banked result.</p></article>
       </div>
       <div class="guide-actions">
-        <a class="chain-link disabled" id="contract-link" href="https://basescan.org" target="_blank" rel="noopener" aria-disabled="true">Available when a game is configured</a>
+        <a class="chain-link disabled" id="contract-link" href="https://basescan.org" target="_blank" rel="noopener" aria-disabled="true" hidden>Available when a game is configured</a>
         <p>Late shots can extend play. Prize growth still stops at the original deadline.</p>
       </div>
     </section>
@@ -83,7 +83,8 @@
         <div id="history-empty" class="empty-copy">No captures yet. Confirmed transactions will be listed here when the hill opens.</div>
         <div class="ledger-wrap" id="ledger-wrap" hidden>
           <table class="ledger">
-            <thead><tr><th>Time</th><th>Player</th><th>Tx</th><th>Visible prize before capture</th></tr></thead>
+            <caption>The prize shown is the public curve value reached by the holder displaced by each shot.</caption>
+            <thead><tr><th>Time</th><th>Player</th><th>Tx</th><th>Previous reign prize</th></tr></thead>
             <tbody id="history-body"></tbody>
           </table>
         </div>
@@ -103,6 +104,6 @@
 
   <footer><div class="shell" id="footer-state">BASE MAINNET / READ-ONLY PUBLIC VIEW / NO LIVE GAME</div></footer>
 
-  <script type="module" src="app.js?v=21"></script>
+  <script type="module" src="app.js?v=22"></script>
 </body>
 </html>
