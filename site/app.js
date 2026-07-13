@@ -228,6 +228,10 @@ function timelinePosition(timestamp, start, end) {
   return Math.max(0, Math.min(100, ((timestamp - start) / (end - start)) * 100));
 }
 
+function timelineBoundaryStyle(position) {
+  return position >= 100 ? 'right:0' : `left:${position}%`;
+}
+
 function renderTimeline(state, shots, view) {
   if (!state.started || !state.startTime) {
     setTimelineNote(['Confirmed shoot() transactions appear here after a game starts.']);
@@ -254,9 +258,9 @@ function renderTimeline(state, shots, view) {
   }
 
   const cutoffLabel = hasOvertime ? 'PRIZE CUTOFF' : 'PRIZE CUTOFF / CURRENT END';
-  parts.push(`<div class="timeline-boundary cutoff${hasOvertime ? '' : ' current-end'}" style="left:${originalPosition}%"><span>${cutoffLabel}</span></div>`);
+  parts.push(`<div class="timeline-boundary cutoff${hasOvertime ? '' : ' current-end'}" style="${timelineBoundaryStyle(originalPosition)}"><span>${cutoffLabel}</span></div>`);
   if (hasOvertime) {
-    parts.push(`<div class="timeline-boundary current-end align-left" style="left:${deadlinePosition}%"><span>CURRENT END</span></div>`);
+    parts.push(`<div class="timeline-boundary current-end align-left" style="${timelineBoundaryStyle(deadlinePosition)}"><span>CURRENT END</span></div>`);
   }
 
   shots.forEach((shot, index) => {
