@@ -280,6 +280,8 @@ function renderTimeline(state, shots, view) {
   timeline.setAttribute('aria-label', `Current game window with ${shots.length} confirmed shots`);
   timeline.innerHTML = parts.join('');
   $('#timeline-key').hidden = false;
+  $('.key.cutoff')?.classList.toggle('current-end', !hasOvertime);
+  setText('#playhead-key-text', endedTimeline ? 'End' : 'Now (latest block)');
   setText('#cutoff-key-text', hasOvertime ? 'Prize cutoff' : 'Prize cutoff + current end');
   $('#current-end-key').hidden = !hasOvertime;
   $('#overtime-key').hidden = !hasOvertime;
@@ -752,7 +754,7 @@ function buildPreview(name) {
     return { state, shots: makeShots([now - 3_500, now - 2_500, now - 1_600, now - 800, now - 360, now - 180, now - 40]) };
   }
   if (name === 'expired') {
-    const state = { ...base, startTime: now - 4_200, originalDeadline: now - 600, deadline: now - 60, maxDeadline: now - 300, gameDuration: 3_600, kingSince: now - 200, shotSequence: 6, kingPrize: 1n * unit };
+    const state = { ...base, startTime: now - 4_200, originalDeadline: now - 600, deadline: now - 60, maxDeadline: now - 60, gameDuration: 3_600, kingSince: now - 200, shotSequence: 6, kingPrize: 1n * unit };
     return { state, shots: makeShots([now - 3_500, now - 2_500, now - 1_600, now - 800, now - 500, now - 200]) };
   }
   if (name === 'finalized' || name === 'finalized-empty') {

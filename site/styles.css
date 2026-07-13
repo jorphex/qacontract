@@ -352,7 +352,7 @@ body[data-view="unfunded"] .status-value {
 .key i { display: block; width: 2px; height: 14px; background: #d8d4cc; }
 .key.now i { width: 3px; background: var(--state-accent); }
 .key.cutoff i { width: 1px; border-left: 1px dashed #9b938b; background: none; }
-.key.current-end i { width: 1px; background: var(--good); }
+.key.current-end i { width: 1px; border-left: 0; background: var(--good); }
 .key.overtime i {
   width: 14px;
   height: 10px;
