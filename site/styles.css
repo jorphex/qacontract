@@ -25,6 +25,7 @@ body[data-view="live-active"] {
   --state-border: #174f8f;
 }
 body[data-view="unfunded"],
+body[data-view="missed-start"],
 body[data-view="overtime"],
 body[data-view="expired"],
 body[data-view="unavailable"] {
@@ -191,6 +192,7 @@ body[data-view="live-open"] .status-block,
 body[data-view="live-active"] .status-block,
 body[data-view="overtime"] .status-block,
 body[data-view="expired"] .status-block,
+body[data-view="missed-start"] .status-block,
 body[data-view="unfunded"] .status-block {
   box-shadow: inset 3px 0 0 var(--state-accent);
 }
@@ -198,6 +200,7 @@ body[data-view="live-open"] .status-value,
 body[data-view="live-active"] .status-value,
 body[data-view="overtime"] .status-value,
 body[data-view="expired"] .status-value,
+body[data-view="missed-start"] .status-value,
 body[data-view="unfunded"] .status-value {
   color: var(--state-accent);
 }
@@ -310,7 +313,6 @@ body[data-view="unfunded"] .status-value {
   z-index: 5;
   background: var(--state-accent);
   box-shadow: 0 0 14px color-mix(in srgb, var(--state-accent) 55%, transparent);
-  transition: left 1s linear;
 }
 .playhead::before {
   content: attr(data-label);
@@ -484,6 +486,7 @@ footer { padding: 24px 0 36px; color: var(--faint); font-size: 13px; }
   .score:nth-child(3) { padding-left: 0; }
   .section-top, .guide-heading { align-items: flex-start; flex-direction: column; }
   .section-note { justify-content: flex-start; text-align: left; }
+  .section-note span { white-space: normal; }
   .guide-heading p { text-align: left; }
   .timeline { height: 154px; }
   .timeline-rail { top: 79px; }
@@ -494,6 +497,7 @@ footer { padding: 24px 0 36px; color: var(--faint); font-size: 13px; }
   body[data-view="live-active"] .status-block,
   body[data-view="overtime"] .status-block,
   body[data-view="expired"] .status-block,
+  body[data-view="missed-start"] .status-block,
   body[data-view="unfunded"] .status-block {
     box-shadow: inset 0 3px 0 var(--state-accent);
   }

@@ -294,9 +294,10 @@ Clawback is allowed before start after funding, or after finalization.
 ## Live Site
 
 The read-only frontend in `site/` renders the full game lifecycle: no configured
-game, funded/not-started, live, overtime, expired/awaiting `finalize()`, and
-finalized winner or no-winner outcomes. Public reads, `Shot` events, transaction
-links, deadlines, and provider block metadata drive the display. Shot answer
+game, unavailable data, unfunded, funded/not-started, missed start window, live,
+overtime, expired/awaiting `finalize()`, cancelled, and finalized winner or
+no-winner outcomes. Public reads and `Shot` events are pinned to the same
+provider block so holder, deadline, and history data stay coherent. Shot answer
 calldata is intentionally omitted from the site but remains inspectable on
 Basescan. The frontend talks to a local RPC proxy so the Alchemy key never
 reaches the browser.

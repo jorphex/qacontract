@@ -228,14 +228,19 @@ function timelinePosition(timestamp, start, end) {
   return Math.max(0, Math.min(100, ((timestamp - start) / (end - start)) * 100));
 }
 
-function timelineBoundaryStyle(position) {
-  return position >= 100 ? 'right:0' : `left:${position}%`;
+function timelineEdgeStyle(position, edgeInset = 0) {
+  return position >= 100 ? `right:${edgeInset}px` : `left:${position}%`;
 }
 
 function renderTimeline(state, shots, view) {
   if (!state.started || !state.startTime) {
-    setTimelineNote(['Confirmed shoot() transactions appear here after a game starts.']);
-    renderEmptyTimeline(view === 'cancelled' ? 'Game ended before it started' : 'No onchain activity to display');
+    const startMissed = view === 'missed-start';
+    setTimelineNote([startMissed
+      ? 'The configured deadline passed before start_game().'
+      : 'Confirmed shoot() transactions appear here after a game starts.']);
+    renderEmptyTimeline(
+      view === 'cancelled' || startMissed ? 'Game never started' : 'No onchain activity to display',
+    );
     return;
   }
 
@@ -247,7 +252,7 @@ function renderTimeline(state, shots, view) {
   const progressPosition = endedTimeline
     ? 100
     : timelinePosition(Math.min(state.blockTimestamp, state.deadline), start, end);
-  const playheadPosition = Math.min(98, progressPosition);
+  const playheadPosition = progressPosition;
 
   const parts = [
     '<div class="timeline-rail"></div>',
@@ -260,20 +265,20 @@ function renderTimeline(state, shots, view) {
 
   const endLabel = endedTimeline ? 'GAME END' : 'CURRENT END';
   const cutoffLabel = hasOvertime ? 'PRIZE CUTOFF' : `PRIZE CUTOFF / ${endLabel}`;
-  parts.push(`<div class="timeline-boundary cutoff${hasOvertime ? '' : ' current-end'}" style="${timelineBoundaryStyle(originalPosition)}"><span>${cutoffLabel}</span></div>`);
+  parts.push(`<div class="timeline-boundary cutoff${hasOvertime ? '' : ' current-end'}" style="${timelineEdgeStyle(originalPosition)}"><span>${cutoffLabel}</span></div>`);
   if (hasOvertime) {
-    parts.push(`<div class="timeline-boundary current-end align-left" style="${timelineBoundaryStyle(deadlinePosition)}"><span>${endLabel}</span></div>`);
+    parts.push(`<div class="timeline-boundary current-end align-left" style="${timelineEdgeStyle(deadlinePosition)}"><span>${endLabel}</span></div>`);
   }
 
   shots.forEach((shot, index) => {
     const capturedAt = Number(shot.args.captured_at);
     const position = timelinePosition(capturedAt, start, end);
     const latest = index === shots.length - 1 ? ' latest' : '';
-    parts.push(`<i class="shot${latest}" style="left:${position}%" title="Shot ${Number(shot.args.sequence)} at ${escapeHtml(formatDateTime(capturedAt))}"></i>`);
+    parts.push(`<i class="shot${latest}" style="${timelineEdgeStyle(position, 7)}" title="Shot ${Number(shot.args.sequence)} at ${escapeHtml(formatDateTime(capturedAt))}"></i>`);
   });
 
   if (!endedTimeline) {
-    parts.push(`<div class="playhead${playheadPosition > 85 ? ' align-end' : ''}" style="left:${playheadPosition}%" data-label="LATEST BLOCK"></div>`);
+    parts.push(`<div class="playhead${playheadPosition > 85 ? ' align-end' : ''}" style="${timelineEdgeStyle(playheadPosition, 3)}" data-label="LATEST BLOCK"></div>`);
   }
   parts.push(`<span class="timeline-start">START / ${escapeHtml(formatTimelineTime(start))}</span>`);
   parts.push(`<span class="timeline-end">${endLabel} / ${escapeHtml(formatTimelineTime(end))}</span>`);
@@ -296,13 +301,12 @@ function renderTimeline(state, shots, view) {
   const timingParts = hasOvertime
     ? [
       `Prize cutoff ${formatCompactDateTime(state.originalDeadline)}`,
-      `${endedTimeline ? 'Game end' : 'Current end'} ${formatCompactDateTime(state.deadline)}`,
-      `Overtime cap ${formatCompactDateTime(state.maxDeadline)}`,
+      `${endedTimeline ? 'Game end' : 'Current end'}${!endedTimeline && state.deadline === state.maxDeadline ? ' / overtime cap' : ''} ${formatCompactDateTime(state.deadline)}`,
     ]
-    : [
-      `Cutoff / ${endedTimeline ? 'game end' : 'current end'} ${formatCompactDateTime(state.originalDeadline)}`,
-      `Overtime cap ${formatCompactDateTime(state.maxDeadline)}`,
-    ];
+    : [`Cutoff / ${endedTimeline ? 'game end' : 'current end'} ${formatCompactDateTime(state.originalDeadline)}`];
+  if (!endedTimeline && state.deadline < state.maxDeadline) {
+    timingParts.push(`Overtime cap ${formatCompactDateTime(state.maxDeadline)}`);
+  }
   setTimelineNote([shotCopy, ...timingParts]);
 }
 
@@ -317,6 +321,8 @@ function renderHistory(state, shots) {
     empty.hidden = false;
     empty.textContent = state?.shotSequence > 0
       ? 'Capture events are temporarily unavailable. Use the verified contract on Basescan for the complete history.'
+      : state && !state.started && (state.ended || state.blockTimestamp > state.originalDeadline)
+        ? 'No captures. The game never started.'
       : state?.started
         ? 'No captures yet. The hill is open, but no shoot() transaction has been confirmed.'
       : 'No captures yet. Confirmed transactions will be listed here when the hill opens.';
@@ -330,7 +336,10 @@ function renderHistory(state, shots) {
     const sequence = Number(shot.args.sequence);
     const index = shots.findIndex((candidate) => Number(candidate.args.sequence) === sequence);
     const capturedAt = Number(shot.args.captured_at);
-    const previousCapture = index > 0 ? Number(shots[index - 1].args.captured_at) : null;
+    const previousShot = index > 0 ? shots[index - 1] : null;
+    const previousCapture = previousShot && Number(previousShot.args.sequence) === sequence - 1
+      ? Number(previousShot.args.captured_at)
+      : null;
     const hold = previousCapture === null
       ? null
       : Math.max(0, Math.min(capturedAt, state.originalDeadline) - previousCapture);
@@ -353,12 +362,14 @@ function renderHistory(state, shots) {
   if (historyLink) historyLink.hidden = false;
 }
 
-function classifyState(state) {
+function classifyState(state, timestamp = state.blockTimestamp) {
   if (state.ended) return state.started ? (state.winner ? 'finalized' : 'finalized-empty') : 'cancelled';
-  if (!state.started) return state.funded ? 'ready' : 'unfunded';
-  const now = state.blockTimestamp;
-  if (now > state.deadline) return 'expired';
-  if (now > state.originalDeadline) return 'overtime';
+  if (!state.started) {
+    if (timestamp > state.originalDeadline) return 'missed-start';
+    return state.funded ? 'ready' : 'unfunded';
+  }
+  if (timestamp > state.deadline) return 'expired';
+  if (timestamp > state.originalDeadline) return 'overtime';
   return state.shotSequence > 0 ? 'live-active' : 'live-open';
 }
 
@@ -389,7 +400,7 @@ function metricsFor(state, view) {
       { label: 'Total shots', value: String(state.shotSequence) },
     ];
   }
-  if (view === 'ready' || view === 'unfunded') {
+  if (view === 'ready' || view === 'unfunded' || view === 'missed-start') {
     return [
       { label: 'Contract funds', value: token(state.remainingAmount) },
       { label: 'Prize pool', value: token(state.maxAmount) },
@@ -430,6 +441,16 @@ function renderContractState(state, shots = cachedShots) {
       label: 'Game status', value: 'Ready',
       copy: 'The prize is funded. Play begins only after the creator calls start_game().',
     });
+  } else if (view === 'missed-start') {
+    setHero({
+      kicker: 'START WINDOW CLOSED', tone: 'warning', heading: 'The hill never opened.',
+      holder: shortHex(config.contractAddress), holderNeutral: true,
+      label: 'Game status', value: 'Not started',
+      copy: state.funded
+        ? 'The configured deadline passed before start_game(). The creator may recover the funded prize.'
+        : 'The configured deadline passed before the game was funded or started.',
+    });
+    if (state.funded) $('#contract-link').textContent = 'Open contract to clawback() ->';
   } else if (view === 'live-open') {
     setHero({
       kicker: 'LIVE / NO SHOTS', tone: '', heading: 'The hill is open.',
@@ -530,6 +551,7 @@ function renderFooter(state, view) {
   const labels = {
     'live-open': 'LIVE / NO SHOTS',
     'live-active': 'LIVE / SHOTS CONFIRMED',
+    'missed-start': 'START WINDOW CLOSED / NOT STARTED',
     expired: 'GAME ENDED / AWAITING FINALIZE()',
     finalized: 'FINALIZE() CALLED / WINNER PAID',
     'finalized-empty': 'FINALIZE() CALLED / NO WINNER',
@@ -544,7 +566,7 @@ async function loadConfigAndAbi() {
   return { config: await configResponse.json(), abi: await abiResponse.json() };
 }
 
-async function loadShots(sequence) {
+async function loadShots(sequence, blockNumber) {
   if (sequence === cachedShotSequence) return cachedShots;
   if (sequence === 0) {
     cachedShots = [];
@@ -552,8 +574,10 @@ async function loadShots(sequence) {
     return cachedShots;
   }
   try {
-    const shots = await contract.queryFilter(contract.filters.Shot(), eventStartBlock, 'latest');
-    cachedShots = shots.sort((a, b) => Number(a.args.sequence) - Number(b.args.sequence));
+    const shots = await contract.queryFilter(contract.filters.Shot(), eventStartBlock, blockNumber);
+    cachedShots = shots
+      .filter((shot) => Number(shot.args.sequence) <= sequence)
+      .sort((a, b) => Number(a.args.sequence) - Number(b.args.sequence));
     cachedShotSequence = sequence;
     if (cachedShots.length < sequence) {
       console.warn(`Only ${cachedShots.length} of ${sequence} Shot events were found in the configured block lookback.`);
@@ -617,12 +641,17 @@ async function readContractState() {
     tokenContract = new ethers.Contract(tokenAddress, ERC20_ABI, provider);
     tokenMetadata = null;
   }
-  if (!tokenMetadata) {
+  let currentTokenMetadata = tokenMetadata;
+  if (!currentTokenMetadata) {
     const [decimals, symbol] = await Promise.all([
-      tokenContract.decimals().catch(() => 18),
-      tokenContract.symbol().catch(() => ''),
+      tokenContract.decimals(),
+      tokenContract.symbol(),
     ]);
-    tokenMetadata = { decimals: Number(decimals), symbol: String(symbol) };
+    currentTokenMetadata = {
+      decimals: Number(decimals),
+      symbol: String(symbol),
+    };
+    tokenMetadata = currentTokenMetadata;
   }
 
   const state = {
@@ -650,13 +679,13 @@ async function readContractState() {
     remainingAmount,
     clawedBackAmount,
     tokenAddress,
-    tokenDecimals: tokenMetadata.decimals,
-    tokenSymbol: tokenMetadata.symbol,
+    tokenDecimals: currentTokenMetadata.decimals,
+    tokenSymbol: currentTokenMetadata.symbol,
   };
   if (eventStartBlock === null) {
     eventStartBlock = Math.max(0, state.blockNumber - EVENT_LOOKBACK_BLOCKS);
   }
-  const shots = await loadShots(state.shotSequence);
+  const shots = await loadShots(state.shotSequence, state.blockNumber);
   return { state, shots };
 }
 
@@ -666,7 +695,7 @@ function refreshDelay() {
   if (['finalized', 'finalized-empty', 'cancelled'].includes(view)) {
     return viewState.remainingAmount === 0n ? 0 : SETTLED_REFRESH_MS;
   }
-  if (['ready', 'unfunded'].includes(view)) return IDLE_REFRESH_MS;
+  if (['ready', 'unfunded', 'missed-start'].includes(view)) return IDLE_REFRESH_MS;
   if (view === 'expired') return REFRESH_MS;
   const remaining = Math.max(0, viewState.deadline - chainNow());
   return remaining <= 60 ? URGENT_REFRESH_MS : REFRESH_MS;
@@ -674,6 +703,7 @@ function refreshDelay() {
 
 function scheduleRefresh(delay = refreshDelay()) {
   clearTimeout(refreshTimer);
+  if (document.hidden) return;
   if (!delay) return;
   refreshTimer = setTimeout(refresh, delay);
 }
@@ -696,7 +726,7 @@ async function refresh() {
 function updateClock() {
   if (!viewState) return;
   const before = document.body.dataset.view;
-  const after = classifyState(viewState);
+  const after = classifyState(viewState, chainNow());
   if (before !== after) {
     refresh();
     return;
@@ -704,6 +734,10 @@ function updateClock() {
   if (after === 'live-open' || after === 'live-active' || after === 'overtime') {
     setText('#status-value', formatCountdown(viewState.deadline - chainNow()));
   }
+}
+
+function startClock() {
+  if (!document.hidden && !clockTimer) clockTimer = setInterval(updateClock, 1_000);
 }
 
 function buildPreview(name) {
@@ -751,7 +785,17 @@ function buildPreview(name) {
 
   if (name === 'unfunded') return { state: { ...base, startTime: 0, gameDuration: 0, funded: false, started: false, king: null, kingSince: 0, shotSequence: 0, kingPrize: 0n, remainingAmount: 0n }, shots: [] };
   if (name === 'ready') return { state: { ...base, startTime: 0, gameDuration: 0, started: false, king: null, kingSince: 0, shotSequence: 0, kingPrize: 0n }, shots: [] };
+  if (name === 'missed-start') return { state: { ...base, startTime: 0, originalDeadline: now - 60, deadline: now - 60, maxDeadline: now + 240, gameDuration: 0, started: false, king: null, kingSince: 0, shotSequence: 0, kingPrize: 0n }, shots: [] };
+  if (name === 'missed-start-unfunded') return { state: { ...base, startTime: 0, originalDeadline: now - 60, deadline: now - 60, maxDeadline: now + 240, gameDuration: 0, funded: false, started: false, king: null, kingSince: 0, shotSequence: 0, kingPrize: 0n, remainingAmount: 0n }, shots: [] };
   if (name === 'live-open') return { state: { ...base, king: null, kingSince: 0, shotSequence: 0, kingPrize: 0n }, shots: [] };
+  if (name === 'live-extended') {
+    const state = { ...base, originalDeadline: now + 600, deadline: now + 900, maxDeadline: now + 1_200, gameDuration: 4_200 };
+    return { state, shots: makeShots([now - 3_200, now - 2_500, now - 1_800, now - 1_100, now - 720]) };
+  }
+  if (name === 'deadline-edge') {
+    const state = { ...base, startTime: now - 3_600, originalDeadline: now, deadline: now, maxDeadline: now + 300, gameDuration: 3_600, kingSince: now, shotSequence: 2, kingPrize: 1n * unit };
+    return { state, shots: makeShots([now - 300, now]) };
+  }
   if (name === 'cancelled') return { state: { ...base, startTime: 0, gameDuration: 0, started: false, ended: true, king: null, kingSince: 0, shotSequence: 0, kingPrize: 0n, remainingAmount: 0n, clawedBackAmount: 500n * unit }, shots: [] };
   if (name === 'overtime') {
     const state = { ...base, startTime: now - 4_200, originalDeadline: now - 300, deadline: now + 120, maxDeadline: now + 300, gameDuration: 3_900, kingSince: now - 40, kingPrize: 1n * unit, shotSequence: 7 };
@@ -765,10 +809,22 @@ function buildPreview(name) {
     const state = { ...base, startTime: now - 3_660, originalDeadline: now - 60, deadline: now - 60, maxDeadline: now + 240, gameDuration: 3_600, kingSince: now - 200, shotSequence: 5, kingPrize: 1n * unit };
     return { state, shots: makeShots([now - 3_200, now - 2_500, now - 1_600, now - 800, now - 200]) };
   }
+  if (name === 'expired-empty') {
+    const state = { ...base, startTime: now - 3_660, originalDeadline: now - 60, deadline: now - 60, maxDeadline: now + 240, gameDuration: 3_600, king: null, kingSince: 0, shotSequence: 0, kingPrize: 0n };
+    return { state, shots: [] };
+  }
   if (name === 'finalized' || name === 'finalized-empty') {
     const winner = name === 'finalized' ? addresses[1] : null;
     const paid = name === 'finalized' ? 84_200_000n : 0n;
     const state = { ...base, startTime: now - 4_200, originalDeadline: now - 600, deadline: now - 300, maxDeadline: now - 300, gameDuration: 3_600, kingSince: now - 700, shotSequence: 6, kingPrize: 4_100_000n, ended: true, winner, paidAmount: paid, remainingAmount: 500n * unit - paid };
+    return { state, shots: makeShots([now - 3_500, now - 2_500, now - 1_600, now - 1_000, now - 800, now - 700]) };
+  }
+  if (name === 'finalized-no-overtime') {
+    const state = { ...base, startTime: now - 3_900, originalDeadline: now - 300, deadline: now - 300, maxDeadline: now, gameDuration: 3_600, kingSince: now - 700, shotSequence: 5, kingPrize: 4_100_000n, ended: true, winner: addresses[1], paidAmount: 84_200_000n, remainingAmount: 415_800_000n };
+    return { state, shots: makeShots([now - 3_500, now - 2_500, now - 1_600, now - 1_000, now - 700]) };
+  }
+  if (name === 'finalized-clawed-back') {
+    const state = { ...base, startTime: now - 4_200, originalDeadline: now - 600, deadline: now - 300, maxDeadline: now - 300, gameDuration: 3_600, kingSince: now - 700, shotSequence: 6, kingPrize: 4_100_000n, ended: true, winner: addresses[1], paidAmount: 84_200_000n, remainingAmount: 0n, clawedBackAmount: 415_800_000n };
     return { state, shots: makeShots([now - 3_500, now - 2_500, now - 1_600, now - 1_000, now - 800, now - 700]) };
   }
   return { state: base, shots: makeShots([now - 3_200, now - 2_500, now - 1_800, now - 1_100, now - 720]) };
@@ -786,11 +842,12 @@ async function init() {
     explorerBase = explorerForChain(config.chainId);
     setText('#network', networkName(config.chainId));
     if (preview === 'empty') renderNoGame();
+    else if (preview === 'unavailable') renderUnavailable('Public contract reads could not be loaded.');
     else {
       const fixture = buildPreview(preview);
       renderContractState(fixture.state, fixture.shots);
     }
-    clockTimer = setInterval(updateClock, 1_000);
+    startClock();
     return;
   }
 
@@ -812,11 +869,15 @@ async function init() {
     contract = new ethers.Contract(config.contractAddress, loaded.abi, provider);
     setContractLinks(true);
     await refresh();
-    clockTimer = setInterval(updateClock, 1_000);
+    startClock();
   } catch (error) {
     console.warn('Site initialization failed:', error.message);
-    if (config?.contractAddress && config.contractAddress.toLowerCase() !== EMPTY_ADDRESS) renderUnavailable(error.message);
-    else renderNoGame();
+    if (!config || (config.contractAddress && config.contractAddress.toLowerCase() !== EMPTY_ADDRESS)) {
+      renderUnavailable(error.message);
+      if (!document.hidden) refreshTimer = setTimeout(init, IDLE_REFRESH_MS);
+    } else {
+      renderNoGame();
+    }
   }
 }
 
@@ -828,7 +889,8 @@ document.addEventListener('visibilitychange', () => {
     clockTimer = null;
   } else {
     if (contract) refresh();
-    if (!clockTimer) clockTimer = setInterval(updateClock, 1_000);
+    else if (document.body.dataset.view === 'unavailable') init();
+    startClock();
   }
 });
 
