@@ -9,13 +9,13 @@
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&family=IBM+Plex+Sans:wght@400;500;600&family=Newsreader:opsz,wght@6..72,500;6..72,650&display=swap" rel="stylesheet">
   <link rel="icon" type="image/svg+xml" href="favicon.svg">
-  <link rel="stylesheet" href="styles.css?v=32">
+  <link rel="stylesheet" href="styles.css?v=33">
   <script src="assets/ethers.umd.min.js"></script>
 </head>
 <body data-view="empty" data-ready="false">
   <header>
     <div class="shell nav">
-      <a class="brand" href="#top"><strong>King of the Hill</strong><span class="version">v5.2</span></a>
+      <a class="brand" href="#top"><strong>King of the Hill</strong><span class="version">v5.2</span><span class="brand-purpose">A learn-by-playing onchain game.</span></a>
       <nav class="nav-actions" aria-label="Site navigation">
         <span class="network" id="network">BASE</span>
         <a id="history-link" href="#ledger" hidden>History</a>
@@ -65,7 +65,7 @@
     <section class="play-guide" id="play">
       <div class="guide-heading">
         <h2>How to take the hill</h2>
-        <p>When a game is live, this site stays read-only. You play on the verified contract so every step can be checked onchain.</p>
+        <p>Learn to read and write a smart contract by playing. Find the question, inspect public state, submit a transaction, and verify the result on Basescan.</p>
       </div>
       <div class="guide-grid">
         <article class="guide-step"><b>01</b><h3>Find the question</h3><p>Open <strong>Read Contract</strong> on Basescan and query <code>prompt()</code>.</p></article>

@@ -87,7 +87,13 @@ header {
   letter-spacing: 0;
   white-space: nowrap;
 }
-.version, .network { color: var(--muted); font-size: 13px; }
+.version, .network, .brand-purpose { color: var(--muted); font-size: 13px; }
+.brand-purpose {
+  padding-left: 12px;
+  border-left: 1px solid var(--line);
+  font-family: "IBM Plex Sans", sans-serif;
+  white-space: nowrap;
+}
 .nav-actions { display: flex; align-items: center; gap: 18px; }
 .nav-actions a { color: var(--muted); font-size: 14px; text-decoration: none; }
 .nav-actions a:hover, .nav-actions a:focus-visible { color: var(--accent); text-decoration: underline; text-underline-offset: 4px; }
@@ -493,6 +499,7 @@ footer { padding: 24px 0 36px; color: var(--faint); font-size: 13px; }
   .shell { width: min(100% - 32px, 680px); }
   .nav { min-height: 58px; }
   .brand strong { font-size: 20px; }
+  .brand-purpose { display: none; }
   .network { display: none; }
   main { padding-top: 34px; }
   .live-heading { grid-template-columns: 1fr; gap: 30px; }
