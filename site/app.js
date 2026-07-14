@@ -180,7 +180,84 @@ function setContractLinks(enabled) {
   actionLink.href = url;
   actionLink.classList.toggle('disabled', !enabled);
   actionLink.setAttribute('aria-disabled', enabled ? 'false' : 'true');
-  actionLink.textContent = enabled ? 'Open verified contract ->' : 'Available when a game is configured';
+  actionLink.textContent = enabled ? 'Open Contract' : 'No contract configured';
+}
+
+function setNextAction({ label, title, copy }) {
+  setText('#next-action-label', label);
+  setText('#next-action-title', title);
+  setText('#next-action-copy', copy);
+}
+
+function setNextActionForView(view, state) {
+  if (view === 'unfunded') {
+    setNextAction({
+      label: 'Before play',
+      title: 'The prize is not funded yet.',
+      copy: 'The contract is attached, but play cannot begin until funding is complete.',
+    });
+  } else if (view === 'ready') {
+    setNextAction({
+      label: 'Before play',
+      title: 'Wait for the hill to open.',
+      copy: 'The prize is funded. Play starts only after the creator calls start_game().',
+    });
+  } else if (view === 'missed-start') {
+    setNextAction({
+      label: 'Game closed',
+      title: 'Review the contract onchain.',
+      copy: state.funded
+        ? 'The start window passed. The creator can recover the funded prize with clawback().'
+        : 'The game was never funded or started before its deadline.',
+    });
+  } else if (view === 'live-open' || view === 'live-active') {
+    setNextAction({
+      label: 'Your next move',
+      title: 'Find the question onchain.',
+      copy: 'Read prompt() on the verified contract before using a shot.',
+    });
+  } else if (view === 'overtime') {
+    setNextAction({
+      label: 'Overtime live',
+      title: 'Shots are still open.',
+      copy: 'Use any remaining ammo before the current end. Prize growth has already stopped.',
+    });
+  } else if (view === 'expired') {
+    setNextAction({
+      label: 'Settlement open',
+      title: 'Finalize the result onchain.',
+      copy: 'Anyone may call finalize(). The contract selects and pays the best banked result.',
+    });
+  } else if (view === 'finalized') {
+    setNextAction({
+      label: 'Game settled',
+      title: 'Review the winning transfer.',
+      copy: 'The winner and paid amount are now public contract state.',
+    });
+  } else if (view === 'finalized-empty') {
+    setNextAction({
+      label: 'Game settled',
+      title: 'Review the finalization.',
+      copy: 'No qualifying correct reign was found, so no prize was paid.',
+    });
+  } else {
+    setNextAction({
+      label: 'Game cancelled',
+      title: 'Review the clawback.',
+      copy: 'The game ended before it started and its funded tokens were recovered.',
+    });
+  }
+}
+
+function setRules(state = null) {
+  const ammo = state
+    ? `Each address gets ${state.maxShots} shot${state.maxShots === 1 ? '' : 's'}. A new shot takes the visible hill immediately.`
+    : 'Each address gets limited shots. A new shot takes the visible hill immediately.';
+  const overtime = state && state.maxDeadline <= state.originalDeadline
+    ? 'This game has no overtime. Prize growth and shots stop at the deadline. After play ends, anyone may call finalize().'
+    : 'Late shots may extend play, but prize growth stops at the original deadline. After play ends, anyone may call finalize().';
+  setText('#ammo-rule', ammo);
+  setText('#settlement-rule', overtime);
 }
 
 function setKicker(text, tone = 'inactive') {
@@ -385,6 +462,7 @@ function renderHistory(state, shots) {
   const wrap = $('#ledger-wrap');
   const tbody = $('#history-body');
   const historyLink = $('#history-link');
+  const activity = $('#activity-status');
   if (!empty || !wrap || !tbody) return;
 
   if (!shots.length) {
@@ -397,6 +475,7 @@ function renderHistory(state, shots) {
         ? 'No captures yet. The hill is open, but no shoot() transaction has been confirmed.'
       : 'No captures yet. Confirmed transactions will be listed here when the hill opens.';
     wrap.hidden = true;
+    if (activity) activity.hidden = true;
     if (historyLink) historyLink.hidden = true;
     tbody.replaceChildren();
     return;
@@ -429,7 +508,34 @@ function renderHistory(state, shots) {
   tbody.innerHTML = rows.join('');
   empty.hidden = true;
   wrap.hidden = false;
+  updateActivityStatus(shots);
   if (historyLink) historyLink.hidden = false;
+}
+
+function captureAge(seconds) {
+  const safe = Math.max(0, Math.floor(seconds));
+  if (safe < 60) return `${safe} second${safe === 1 ? '' : 's'} ago`;
+  if (safe < 3_600) {
+    const minutes = Math.floor(safe / 60);
+    return `${minutes} minute${minutes === 1 ? '' : 's'} ago`;
+  }
+  if (safe < 86_400) {
+    const hours = Math.floor(safe / 3_600);
+    return `${hours} hour${hours === 1 ? '' : 's'} ago`;
+  }
+  return formatDateTime(chainNow() - safe);
+}
+
+function updateActivityStatus(shots = cachedShots) {
+  const activity = $('#activity-status');
+  if (!activity) return;
+  if (!shots.length) {
+    activity.hidden = true;
+    return;
+  }
+  const capturedAt = Number(shots[shots.length - 1].args.captured_at);
+  setText('#activity-status-text', `Latest capture confirmed ${captureAge(chainNow() - capturedAt)}`);
+  activity.hidden = false;
 }
 
 function classifyState(state, timestamp = state.blockTimestamp) {
@@ -492,6 +598,8 @@ function renderContractState(state, shots = cachedShots) {
   document.body.dataset.view = view;
   setContractLinks(true);
   setMetrics(metricsFor(state, view));
+  setNextActionForView(view, state);
+  setRules(state);
 
   const lastHolder = state.king ? `Current holder: ${shortHex(state.king)}` : 'No captures yet';
   const token = (value) => formatToken(value, state.tokenDecimals, state.tokenSymbol);
@@ -520,7 +628,6 @@ function renderContractState(state, shots = cachedShots) {
         ? 'The configured deadline passed before start_game(). The creator may recover the funded prize.'
         : 'The configured deadline passed before the game was funded or started.',
     });
-    if (state.funded) $('#contract-link').textContent = 'Open contract to clawback() ->';
   } else if (view === 'live-open') {
     setHero({
       kicker: 'LIVE / NO SHOTS', tone: '', heading: 'The hill is open.',
@@ -552,7 +659,6 @@ function renderContractState(state, shots = cachedShots) {
       label: 'Settlement', value: 'Finalize',
       copy: 'Anyone may call finalize(). The contract alone selects and pays the winner.',
     });
-    $('#contract-link').textContent = 'Open contract to finalize() ->';
   } else if (view === 'finalized') {
     setHero({
       kicker: 'FINALIZE() CALLED / PRIZE PAID', tone: 'inactive', heading: 'Winner settled.',
@@ -587,6 +693,12 @@ function renderNoGame() {
   document.body.dataset.view = 'empty';
   setContractLinks(false);
   setMetrics(null);
+  setNextAction({
+    label: 'Learn onchain',
+    title: 'See how the game works.',
+    copy: 'The next game will use a verified contract on Basescan as its interface.',
+  });
+  setRules();
   setHero({
     kicker: 'NO LIVE GAME', tone: 'inactive', heading: 'The hill is quiet.',
     holder: 'No game contract configured', holderNeutral: false,
@@ -605,6 +717,12 @@ function renderUnavailable(message) {
   document.body.dataset.view = 'unavailable';
   setContractLinks(Boolean(config?.contractAddress));
   setMetrics(null);
+  setNextAction({
+    label: 'Data unavailable',
+    title: config?.contractAddress ? 'Open the contract directly.' : 'No contract connection.',
+    copy: 'This viewer is retrying its public chain connection automatically.',
+  });
+  setRules();
   setHero({
     kicker: 'DATA UNAVAILABLE', tone: 'warning', heading: 'The chain view is unavailable.',
     holder: config?.contractAddress ? shortHex(config.contractAddress) : 'No contract connection', holderNeutral: true,
@@ -801,6 +919,7 @@ async function refresh() {
 
 function updateClock() {
   if (!viewState) return;
+  updateActivityStatus();
   const before = document.body.dataset.view;
   const after = classifyState(viewState, chainNow());
   if (before !== after) {
@@ -814,6 +933,22 @@ function updateClock() {
 
 function startClock() {
   if (!document.hidden && !clockTimer) clockTimer = setInterval(updateClock, 1_000);
+}
+
+function initRulesDisclosure() {
+  const rules = $('.rules');
+  const toggle = $('.rules-toggle');
+  const panel = $('.rules-panel');
+  const action = $('.rules-action span');
+  if (!rules || !toggle || !panel || !action) return;
+
+  toggle.addEventListener('click', () => {
+    const open = toggle.getAttribute('aria-expanded') !== 'true';
+    rules.classList.toggle('open', open);
+    toggle.setAttribute('aria-expanded', String(open));
+    panel.setAttribute('aria-hidden', String(!open));
+    action.textContent = open ? 'Hide rules' : 'View rules';
+  });
 }
 
 function buildPreview(name) {
@@ -921,6 +1056,8 @@ async function init() {
     else if (preview === 'unavailable') renderUnavailable('Public contract reads could not be loaded.');
     else {
       const fixture = buildPreview(preview);
+      cachedShots = fixture.shots;
+      cachedShotSequence = fixture.state.shotSequence;
       renderContractState(fixture.state, fixture.shots);
     }
     startClock();
@@ -970,4 +1107,7 @@ document.addEventListener('visibilitychange', () => {
   }
 });
 
-document.addEventListener('DOMContentLoaded', init);
+document.addEventListener('DOMContentLoaded', () => {
+  initRulesDisclosure();
+  init();
+});

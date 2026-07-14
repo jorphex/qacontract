@@ -9,7 +9,7 @@
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&family=IBM+Plex+Sans:wght@400;500;600&family=Newsreader:opsz,wght@6..72,500;6..72,650&display=swap" rel="stylesheet">
   <link rel="icon" type="image/svg+xml" href="favicon.svg">
-  <link rel="stylesheet" href="styles.css?v=33">
+  <link rel="stylesheet" href="styles.css?v=34">
   <script src="assets/ethers.umd.min.js"></script>
 </head>
 <body data-view="empty" data-ready="false">
@@ -62,50 +62,70 @@
       </div>
     </section>
 
-    <section class="play-guide" id="play">
-      <div class="guide-heading">
-        <h2>How to take the hill</h2>
-        <p>Learn to read and write a smart contract by playing. Find the question, inspect public state, submit a transaction, and verify the result on Basescan.</p>
+    <section class="next-action" id="next-action" aria-label="Suggested next action">
+      <div>
+        <span class="label" id="next-action-label">Learn onchain</span>
+        <p><strong id="next-action-title">See how the game works.</strong><br><span id="next-action-copy">The next game will use a verified contract on Basescan as its interface.</span></p>
       </div>
-      <div class="guide-grid">
-        <article class="guide-step"><b>01</b><h3>Find the question</h3><p>Open <strong>Read Contract</strong> on Basescan and query <code>prompt()</code>.</p></article>
-        <article class="guide-step"><b>02</b><h3>Take a shot</h3><p>Open <strong>Write Contract</strong>, connect your wallet, then call <code>shoot(answer)</code>. The answer must match exactly, including capitalization.</p></article>
-        <article class="guide-step"><b>03</b><h3>Use ammo wisely</h3><p>You get limited shots. The visible holder is not necessarily winning; only correct hold time is banked, and banked results stay hidden.</p></article>
-        <article class="guide-step"><b>04</b><h3>Settle the game</h3><p>After the live deadline, anyone may call <code>finalize()</code>. The contract pays the best banked result.</p></article>
-      </div>
-      <div class="guide-actions">
-        <a class="chain-link disabled" id="contract-link" href="https://basescan.org" target="_blank" rel="noopener" aria-disabled="true" hidden>Available when a game is configured</a>
-        <p>Late shots can extend play. Prize growth still stops at the original deadline.</p>
-      </div>
+      <a class="contract-action disabled" id="contract-link" href="https://basescan.org" target="_blank" rel="noopener" aria-disabled="true" hidden>Open Contract</a>
     </section>
 
-    <section class="lower">
+    <section class="learn-guide" id="play">
+      <div class="guide-heading">
+        <h2>Play in three moves</h2>
+        <p>Learn contract reads, writes, and transaction verification<br>by using Basescan as the game interface.</p>
+      </div>
+      <div class="learn-steps">
+        <article class="learn-step"><b>01 / READ</b><h3>Find the question</h3><p>Open <strong>Read Contract</strong> and query <code>prompt()</code>.</p></article>
+        <article class="learn-step"><b>02 / WRITE</b><h3>Submit an answer</h3><p>Connect your wallet and call <code>shoot(answer)</code>. Capitalization must match.</p></article>
+        <article class="learn-step"><b>03 / VERIFY</b><h3>Check the chain</h3><p>Confirm your transaction and watch the capture appear on the timeline.</p></article>
+      </div>
+
+      <section class="rules" aria-labelledby="rules-title">
+        <button class="rules-toggle" type="button" aria-expanded="false" aria-controls="rules-panel">
+          <span class="rules-title"><strong id="rules-title">Game rules</strong><small>Ammo, hidden state, overtime, and settlement</small></span>
+          <span class="rules-action"><span>View rules</span><i aria-hidden="true"></i></span>
+        </button>
+        <div class="rules-panel" id="rules-panel" aria-hidden="true">
+          <div class="rules-panel-inner">
+            <div class="rules-grid">
+              <div><h3>Use ammo wisely</h3><p id="ammo-rule">Each address gets limited shots. A new shot takes the visible hill immediately.</p></div>
+              <div><h3>The result stays hidden</h3><p>The visible holder is not necessarily winning. Answers, correctness, and banked hold totals are omitted here.</p></div>
+              <div><h3>Finish onchain</h3><p id="settlement-rule">Late shots may extend play, but prize growth stops at the original deadline. After play ends, anyone may call <code>finalize()</code>.</p></div>
+            </div>
+          </div>
+        </div>
+      </section>
+    </section>
+
+    <section class="lower compact-lower">
       <div id="ledger">
+        <div class="activity-status" id="activity-status" hidden><i></i><span id="activity-status-text"></span></div>
         <h2>Recent captures</h2>
         <div id="history-empty" class="empty-copy">No captures yet. Confirmed transactions will be listed here when the hill opens.</div>
         <div class="ledger-wrap" id="ledger-wrap" hidden>
           <table class="ledger">
-            <caption>The prize shown is the public curve value reached by the holder displaced by each shot.</caption>
+            <caption>Public transaction events. Shot answers remain in transaction input data on Basescan.</caption>
             <thead><tr><th>Time</th><th>Player</th><th>Tx</th><th>Previous reign prize</th></tr></thead>
             <tbody id="history-body"></tbody>
           </table>
         </div>
       </div>
       <aside>
-        <h2>What this view omits</h2>
-        <div class="hidden-state">
-          <p>Shot answers are not shown here. They remain public in transaction input data on Basescan.</p>
-          <p>Answer correctness and banked hold totals are not exposed through contract reads.</p>
-          <p>The winner is published only when the game is settled.</p>
-        </div>
+        <h2>What you practice</h2>
+        <ul class="learning-outcomes">
+          <li><strong>Contract literacy</strong>Read public state directly from its source.</li>
+          <li><strong>Transaction confidence</strong>Sign and follow an onchain action.</li>
+          <li><strong>Independent verification</strong>Verify what happened without trusting this site.</li>
+        </ul>
       </aside>
     </section>
 
-    <p class="disclosure">This page displays public contract state and transaction events while intentionally omitting shot answer calldata. Verify every displayed value and inspect transaction inputs on Basescan.</p>
+    <p class="disclosure">This read-only page displays public contract state and events while intentionally omitting shot answer calldata. Verify every displayed value on Basescan.</p>
   </main>
 
   <footer><div class="shell" id="footer-state">BASE MAINNET / READ-ONLY PUBLIC VIEW / NO LIVE GAME</div></footer>
 
-  <script type="module" src="app.js?v=32"></script>
+  <script type="module" src="app.js?v=33"></script>
 </body>
 </html>
